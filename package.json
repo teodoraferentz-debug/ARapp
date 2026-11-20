@@ -1,0 +1,10 @@
+{
+  "name": "ar-cosmos",
+  "version": "1.0.0",
+  "description": "Aplicație AR educațională și de joc (Sistemul Solar) — A-Frame + AR.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "https": "node server.js --https"
+  }
+}

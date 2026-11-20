@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8">
+  <title>AR Cosmos</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#050816">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="vendor/aframe.min.js"></script>
+  <script src="vendor/aframe-ar.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/app.js" defer></script>
+</head>
+<body data-mode="explore" data-started="false">
+
+  <!-- Scena A-Frame/AR.js este creată de app.js după apăsarea butonului Start -->
+
+  <!-- ===== Bara de sus ===== -->
+  <header id="topbar" class="ui">
+    <div class="chip brand">🪐 AR Cosmos</div>
+    <div class="spacer"></div>
+    <button id="btn-sound" class="round" aria-label="Sunet">🔊</button>
+    <button id="btn-help" class="round" aria-label="Ajutor">?</button>
+  </header>
+
+  <!-- ===== HUD per mod ===== -->
+  <section id="hud-quiz" class="hud ui">
+    <div class="hud-row"><span id="quiz-progress">Întrebarea 1/8</span><span id="quiz-score">0 pct</span></div>
+    <div id="quiz-q" class="question">…</div>
+  </section>
+
+  <section id="hud-game" class="hud ui">
+    <div class="hud-row">
+      <span>Scor <b id="g-score">0</b></span>
+      <span id="g-lives" class="lives">♥♥♥</span>
+      <span>Nivel <b id="g-level">1</b></span>
+      <span class="best">Record <b id="g-best">0</b></span>
+    </div>
+    <div id="g-slow" class="slowbar hidden">⏱ Timp încetinit</div>
+  </section>
+
+  <!-- ===== Unelte mod explorare ===== -->
+  <aside id="tools" class="ui">
+    <button id="t-pause"  class="round tool" title="Pauză/Reluare">⏸</button>
+    <button id="t-speed"  class="round tool" title="Viteza orbitelor">1×</button>
+    <button id="t-orbits" class="round tool active" title="Orbite">◎</button>
+    <button id="t-labels" class="round tool active" title="Etichete">Aa</button>
+    <button id="t-reset"  class="round tool" title="Resetează vederea">⟲</button>
+  </aside>
+
+  <!-- ===== Mesaje ===== -->
+  <div id="hint" class="center-msg hidden">
+    <div class="marker-ico">⌗</div>
+    <p>Îndreaptă camera spre <b>markerul Hiro</b></p>
+    <small>Ține-l bine luminat și complet în cadru</small>
+  </div>
+  <div id="toast" class="toast"></div>
+
+  <!-- ===== Card informații planetă ===== -->
+  <section id="info" class="card ui hidden">
+    <button id="info-close" class="close" aria-label="Închide">×</button>
+    <h2 id="i-name">Planetă</h2>
+    <dl id="i-grid"></dl>
+    <p id="i-fact"></p>
+  </section>
+
+  <!-- ===== Navigare moduri ===== -->
+  <nav id="nav" class="ui">
+    <button data-mode="explore" class="tab active"><span>🔭</span>Explorează</button>
+    <button data-mode="quiz" class="tab"><span>🎯</span>Quiz</button>
+    <button data-mode="game" class="tab"><span>☄️</span>Joc</button>
+  </nav>
+
+  <!-- ===== Ecran start ===== -->
+  <div id="start" class="overlay">
+    <div class="panel">
+      <div class="logo">🪐</div>
+      <h1>AR Cosmos</h1>
+      <p class="sub">Sistemul Solar în palma ta — explorează, învață și apără-l de asteroizi.</p>
+      <ol class="steps">
+        <li>Printează sau deschide pe alt ecran <a href="assets/hiro.png" target="_blank" rel="noopener">markerul Hiro</a>.</li>
+        <li>Apasă <b>Pornește AR</b> și permite accesul la cameră.</li>
+        <li>Îndreaptă camera spre marker — universul apare deasupra lui.</li>
+      </ol>
+      <button id="btn-start-ar" class="primary">📷 Pornește AR</button>
+      <button id="btn-start-demo" class="secondary">🖥️ Mod demo (fără cameră)</button>
+      <small class="note">Camera funcționează doar prin HTTPS sau pe localhost.</small>
+    </div>
+  </div>
+
+  <!-- ===== Modal generic (rezultate, ajutor) ===== -->
+  <div id="modal" class="overlay hidden">
+    <div class="panel">
+      <h2 id="m-title"></h2>
+      <div id="m-body"></div>
+      <div id="m-actions" class="actions"></div>
+    </div>
+  </div>
+
+</body>
+</html>
