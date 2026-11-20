@@ -247,3 +247,12 @@ body[data-mode="explore"][data-kind="gyro"] .coach { top: calc(var(--safe-t) + 1
 .ripple { position: fixed; z-index: 60; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%;
   border: 2px solid #fff; pointer-events: none; animation: ripple .45s ease-out forwards; }
 @keyframes ripple { to { transform: scale(3.2); opacity: 0; } }
+
+.tune { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.07); font-size: 14px; }
+.tune > div { margin: 8px 0 4px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tune small { color: var(--muted); display: block; margin-top: 6px; }
+.seg { padding: 6px 12px; border-radius: 999px; background: rgba(255,255,255,.1); border: 1px solid var(--line); font-size: 13px; }
+.seg.on { background: rgba(106,168,255,.4); border-color: var(--accent); }
+.diag { margin-top: 10px; font-size: 12px; }
+.diag pre { white-space: pre-wrap; word-break: break-word; color: var(--muted); }
+#tools { gap: 6px; }

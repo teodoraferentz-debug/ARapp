@@ -37,6 +37,8 @@
     speedIdx: 1,
     showOrbits: true,
     showLabels: true,
+    depth: true,             // 3D depth cues: tilted orbits, base plate, drop lines, shadows
+    fps: 60,
     yaw: 0,
     tilt: 0.35,
     scale: 0.6,
@@ -49,16 +51,20 @@
 
   /* height of the system's center and default scale for each kind of AR
    * (marker: 1 unit = marker width; xr/gyro: 1 unit = 1 meter) */
+  // y = height of the system's centre above the floor/marker plane, base = height of the “hologram” base plate
   const KIND = {
-    marker: { y: 0.3, scale: 0.6 },
-    demo:   { y: 0,   scale: 0.85 },
-    xr:     { y: 0.35, scale: 0.3 },
-    gyro:   { y: 0,   scale: 0.28 }
+    marker: { y: 0.5,  scale: 0.8,  base: -0.5 },
+    demo:   { y: 0,    scale: 0.85, base: -0.5 },
+    xr:     { y: 0.4,  scale: 0.3,  base: -0.4 },
+    gyro:   { y: 0,    scale: 0.28, base: -0.55 }
   };
   function setScaleFor(kind) {
     App.kind = kind;
     App.demo = kind === 'demo';
     App.defScale = App.scale = KIND[kind].scale;
+    // marker / WebXR: your own movement changes the viewpoint, so no manual tilt or rotation
+    App.defTilt = App.tilt = (kind === 'marker' || kind === 'xr') ? 0 : 0.35;
+    App.yaw = 0;
     App.scaleMin = App.defScale * 0.4;
     App.scaleMax = App.defScale * 2.7;
   }
@@ -173,6 +179,20 @@
     });
   }
 
+  function gridTexture() {                         // hologram base plate: rings + spokes
+    return canvasTex(512, 512, (g, w, h) => {
+      const c = w / 2;
+      g.clearRect(0, 0, w, h);
+      g.strokeStyle = 'rgba(120,200,255,0.55)'; g.lineWidth = 2;
+      for (let r = 0.2; r <= 1.0001; r += 0.2) { g.beginPath(); g.arc(c, c, c * r - 2, 0, Math.PI * 2); g.stroke(); }
+      g.strokeStyle = 'rgba(120,200,255,0.28)'; g.lineWidth = 1.5;
+      for (let i = 0; i < 24; i++) { const a = i / 24 * Math.PI * 2; g.beginPath(); g.moveTo(c, c); g.lineTo(c + Math.cos(a) * (c - 2), c + Math.sin(a) * (c - 2)); g.stroke(); }
+      const gr = g.createRadialGradient(c, c, c * 0.55, c, c, c);          // fade out toward the rim
+      gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.85)');
+      g.globalCompositeOperation = 'destination-out'; g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    });
+  }
+
   function labelSprite(text) {
     const tex = canvasTex(256, 64, (g, w, h) => {
       g.fillStyle = 'rgba(5,8,22,0.62)';
@@ -222,6 +242,8 @@
       this.buildSun();
       this.buildPlanets();
       if (App.demo) this.buildStars();
+      this.buildDepth();
+      this.depthK = App.depth ? 1 : 0;
 
       this.rockGeos = [0, 1, 2].map((i) => this.makeRockGeo(i + 1));
       this.glowGold = glowTexture('rgba(255,230,120,1)', 'rgba(255,170,0,.45)');
@@ -255,9 +277,15 @@
       this.orbitLines = [];
       this.labels = [];
       this.planets = PLANETS.map((p) => {
+        // spin → node (direction of the tilt) → inclination → pivot (orbital angle) → holder (planet)
+        const node = new THREE.Group();
+        node.rotation.y = Math.random() * Math.PI * 2;
+        this.spin.add(node);
+        const incl = new THREE.Group();
+        node.add(incl);
         const pivot = new THREE.Group();
         pivot.rotation.y = Math.random() * Math.PI * 2;
-        this.spin.add(pivot);
+        incl.add(pivot);
 
         const holder = new THREE.Group();            // position on the orbit (does not spin on its axis)
         holder.position.x = p.orbit;
@@ -309,12 +337,87 @@
           new THREE.BufferGeometry().setFromPoints(pts),
           new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.22 })
         );
-        this.spin.add(line);
+        incl.add(line);
         this.orbitLines.push(line);
 
-        const entry = { data: p, pivot, mesh, angVel: 0.26 / Math.sqrt(p.period) };
+        // real inclinations are only 0–7°; they are exaggerated ×5 (max 22°) to make the depth visible
+        const inclRad = Math.min(p.incl * 5, 22) * Math.PI / 180;
+        const entry = { data: p, pivot, incl, inclRad, holder, mesh, angVel: 0.26 / Math.sqrt(p.period) };
         this.byId[p.id] = { mesh: holder, size: p.size, data: p };
         return entry;
+      });
+    },
+
+    /* depth cues: hologram base plate, planet shadows + drop lines, nearby star dust */
+    buildDepth() {
+      const baseY = KIND[App.kind].base;
+      this.depthObjs = [];
+
+      const plate = new THREE.Mesh(
+        new THREE.CircleGeometry(1.4, 64).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ map: gridTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })
+      );
+      plate.position.y = baseY;
+      this.center.add(plate);
+      this.depthObjs.push({ obj: plate, max: 0.9 });
+
+      const shadowTex = glowTexture('rgba(0,0,0,0.9)', 'rgba(0,0,0,0.45)');
+      this.guides = this.planets.map((pl) => {
+        const shadow = new THREE.Mesh(
+          new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false })
+        );
+        this.center.add(shadow);
+        const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+        const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x7fc4ff, transparent: true, opacity: 0.4, depthWrite: false }));
+        line.frustumCulled = false;
+        this.center.add(line);
+        return { pl, shadow, line };
+      });
+
+      // star dust in a shell around the system: strong parallax when you move around it
+      const n = 320, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        const v = new THREE.Vector3(rand(-1, 1), rand(-0.6, 1), rand(-1, 1)).normalize().multiplyScalar(rand(1.5, 3.4));
+        pos.set([v.x, v.y, v.z], i * 3);
+        const c = new THREE.Color().setHSL(rand(0.5, 0.65), 0.6, rand(0.7, 0.95));
+        col.set([c.r, c.g, c.b], i * 3);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      const dust = new THREE.Points(g, new THREE.PointsMaterial({
+        size: 0.06, map: glowTexture('rgba(255,255,255,1)', 'rgba(255,255,255,0.35)'), vertexColors: true,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true
+      }));
+      this.center.add(dust);
+      this.depthObjs.push({ obj: dust, max: 1 });
+    },
+
+    updateDepth(dt) {
+      const target = App.depth ? 1 : 0;
+      this.depthK += (target - this.depthK) * Math.min(1, dt * 4);
+      const k = this.depthK;
+      this.planets.forEach((pl) => { pl.incl.rotation.x = pl.inclRad * k; });
+      this.depthObjs.forEach((d) => { d.obj.visible = k > 0.02; d.obj.material.opacity = d.max * k; });
+
+      const baseY = KIND[App.kind].base + 0.004, v = new THREE.Vector3();
+      this.center.updateWorldMatrix(true, false);
+      this.guides.forEach((gd) => {
+        gd.shadow.visible = gd.line.visible = k > 0.02;
+        if (k <= 0.02) return;
+        gd.pl.holder.updateWorldMatrix(true, false);
+        gd.pl.holder.getWorldPosition(v);
+        this.center.worldToLocal(v);
+        const h = Math.max(v.y - baseY, 0);
+        const sz = gd.pl.data.size * 2.6 * (1 + h * 0.25);
+        gd.shadow.position.set(v.x, baseY, v.z);
+        gd.shadow.scale.set(sz, 1, sz);
+        gd.shadow.material.opacity = clamp(0.7 - h * 0.3, 0.12, 0.7) * k;
+        const a = gd.line.geometry.attributes.position;
+        a.setXYZ(0, v.x, v.y - gd.pl.data.size, v.z); a.setXYZ(1, v.x, baseY, v.z);
+        a.needsUpdate = true;
+        gd.line.material.opacity = 0.4 * k;
       });
     },
 
@@ -420,6 +523,7 @@
       const dt = Math.min(dtMs, 100) / 1000;
       this.root.scale.setScalar(App.scale);
       this.spin.rotation.set(App.tilt, App.yaw, 0);
+      if (dtMs > 0) App.fps = App.fps * 0.95 + (1000 / dtMs) * 0.05;
 
       if (!App.markerVisible) return;
 
@@ -431,6 +535,7 @@
         });
         this.sun.rotation.y += dt * 0.1;
       }
+      this.updateDepth(dt);
       Game.update(dt);
       this.updateFx(dt);
     }
@@ -749,7 +854,10 @@
       const xr = sceneEl && sceneEl.renderer && sceneEl.renderer.xr;
       const cam = xr && xr.isPresenting ? xr.getCamera() : (sceneEl && sceneEl.camera);
       if (!cam || !App.universe || !App.markerVisible) return null;
-      ndc.set((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
+      const cr = sceneEl.canvas ? sceneEl.canvas.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+      ndc.set(((x - cr.left) / cr.width) * 2 - 1, -((y - cr.top) / cr.height) * 2 + 1);
+      // AR.js sets camera.projectionMatrix directly and leaves its inverse stale, which skews the ray
+      cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
       raycaster.setFromCamera(ndc, cam);
       return best(candidates());
     }
@@ -794,6 +902,7 @@
       p.x = e.clientX; p.y = e.clientY; p.moved += Math.abs(dx) + Math.abs(dy);
       if (!gesturesOn()) return;
       if (pointers.size === 1) {
+        if (App.kind === 'marker' || App.kind === 'xr') return;   // move yourself instead
         App.yaw += dx * 0.009;
         App.tilt = clamp(App.tilt + dy * 0.005, -0.4, 1.3);
       } else if (pointers.size === 2 && pinch) {
@@ -924,16 +1033,24 @@
         gyro:   '<li><b>📍 Move:</b> re-centers the universe in front of you.</li>',
         demo:   '<li><b>Demo:</b> mouse wheel zooms, drag rotates.</li>'
       }[App.kind] || '';
+      const seg = (attr, cur, opts) => opts.map((o) => '<button class="seg' + (String(cur) === String(o[0]) ? ' on' : '') + '" data-' + attr + '="' + o[0] + '">' + o[1] + '</button>').join('');
+      const tuning = App.kind === 'marker'
+        ? '<div class="tune"><b>Marker tracking</b> (applies after a reload)' +
+          '<div>Camera view angle: ' + seg('fov', Settings.fov, [[58, 'Narrow'], [66, 'Normal'], [74, 'Wide']]) + '</div>' +
+          '<div>Detection: ' + seg('q', Settings.quality, [['hd', 'Precise'], ['fast', 'Fast']]) + '</div>' +
+          '<small>If the universe seems to slide against the marker when you move, try another view angle. Use a marker at least 9 cm wide on flat matte paper, fully visible and well lit.</small></div>'
+        : '';
       this.modal('How to use',
         '<ul>' +
         '<li><b>🔭 Explore</b> — tap a planet (or pick one in the bar at the bottom) to see its facts, and use ◀ ▶ to browse. Drag to rotate, pinch to zoom. Tools on the right: Pause, Speed, Orbits, Names, Reset.</li>' +
         '<li><b>🎯 Quiz</b> — read the question and tap the right planet. Names are hidden!</li>' +
         '<li><b>☄️ Game</b> — tap asteroids before they hit the Sun. Blue comets are fast (+25), golden asteroids slow time. You have 3 lives.</li>' +
+        '<li><b>◈ Depth</b> — shows the 3D cues (tilted orbits, base plate, shadows). Real orbit tilts are only 0–7°, so they are exaggerated ×5 here; switch Depth off for the true flat plane.</li>' +
         '<li><b>🎵 🔊</b> — turn music and sound effects on or off. <b>🏠</b> goes back to the menu.</li>' +
         extra +
-        '</ul>' +
+        '</ul>' + tuning +
         '<details class="diag"><summary>Diagnostics</summary><pre>' + (navigator.userAgent.replace(/</g, '&lt;')) + '\nmode: ' + App.kind +
-        ' · xrSupported: ' + App.xrSupported + '\n' + Log.text().replace(/</g, '&lt;') + '</pre></details>');
+        ' · xrSupported: ' + App.xrSupported + ' · ~' + Math.round(App.fps) + ' fps · marker found/lost: ' + MarkerStats.found + '/' + MarkerStats.lost + ' · rejected poses: ' + MarkerStats.rejected + '\n' + Log.text().replace(/</g, '&lt;') + '</pre></details>');
     }
   };
 
@@ -1097,11 +1214,35 @@
 
   App.XR = XR; App.Gyro = Gyro; App.Input = Input;   // exposed for debugging/tests
 
+  /* AR.js sizes the camera video to cover the screen (cropping the sides in portrait) and expects the 3D canvas
+   * to have exactly the same rectangle. A-Frame's CSS forces the canvas to 100% × 100% !important, which squeezes
+   * the 3D view horizontally: the virtual marker ends up much smaller than the printed one and nothing lines up.
+   * So the canvas is kept glued to the video's rectangle. */
+  function syncCanvasToVideo() {
+    const sceneEl = $('a-scene'), cv = sceneEl && sceneEl.canvas, vid = document.querySelector('video');
+    if (cv && vid && vid.videoWidth) {
+      const r = vid.getBoundingClientRect(), sr = sceneEl.getBoundingClientRect(), st = cv.style;   // canvas is positioned inside <a-scene>
+      const set = (k, v) => { if (st.getPropertyValue(k) !== v) st.setProperty(k, v, 'important'); };
+      set('margin', '0'); set('position', 'absolute'); set('left', Math.round(r.left - sr.left) + 'px'); set('top', Math.round(r.top - sr.top) + 'px');
+      set('width', Math.round(r.width) + 'px'); set('height', Math.round(r.height) + 'px');
+    }
+    requestAnimationFrame(syncCanvasToVideo);
+  }
+
+  const MarkerStats = { found: 0, lost: 0, since: 0, snaps: 0, rejected: 0 };
+  App.MarkerStats = MarkerStats;
+
+  /* marker tracking settings (saved; changed from the Help dialog) */
+  const Settings = {
+    fov: store.get('ar_fov', 66),          // camera horizontal field of view in degrees (data/camera_para_<fov>.dat)
+    quality: store.get('ar_q', 'hd')       // 'hd' = 960×720 detection, 'fast' = 640×480
+  };
+
   function sceneHtml(kind) {
     const y = KIND[kind].y;
     const lights =
-      '<a-entity light="type: ambient; color: #8896c8; intensity: 0.7"></a-entity>' +
-      '<a-entity light="type: point; color: #fff1d6; intensity: 2.6; decay: 0; distance: 0" position="0 ' + y + ' 0"></a-entity>';
+      '<a-entity light="type: ambient; color: #7f8fc0; intensity: 0.45"></a-entity>' +
+      '<a-entity light="type: point; color: #fff1d6; intensity: 3.0; decay: 0; distance: 0" position="0 ' + y + ' 0"></a-entity>';
     const common = 'id="scene" xr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: ';
 
     if (kind === 'demo') {
@@ -1123,15 +1264,82 @@
         '<a-entity id="world" universe position="0 -0.15 -1.2">' + lights + '</a-entity>' +
         '</a-scene>';
     }
+    const hd = Settings.quality === 'hd', w = hd ? 960 : 640, h = hd ? 720 : 480;
     return '<a-scene ' + common + 'false" renderer="alpha: true; antialias: true" ' +
       'arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: false; detectionMode: mono; ' +
-      'cameraParametersUrl: data/camera_para.dat; maxDetectionRate: 30;">' +
-      '<a-marker id="marker" type="pattern" url="data/patt.hiro" smooth="true" smoothCount="8" smoothTolerance="0.01" smoothThreshold="4">' +
+      'cameraParametersUrl: data/camera_para_' + Settings.fov + '.dat; maxDetectionRate: 60; ' +
+      'sourceWidth: ' + w + '; sourceHeight: ' + h + '; displayWidth: ' + w + '; displayHeight: ' + h + '; ' +
+      'canvasWidth: ' + w + '; canvasHeight: ' + h + ';">' +
+      '<a-marker id="marker" type="pattern" url="data/patt.hiro" smooth="false">' +
       '<a-entity id="world" universe>' + lights + '</a-entity>' +
       '</a-marker>' +
       '<a-entity camera></a-entity>' +
       '</a-scene>';
   }
+
+  /* Robust pose filter for marker tracking (replaces AR.js's built-in smoothing).
+   *  - AR.js's smoothing averages raw matrices; after the marker is covered and shows up again from a
+   *    different side that produces a corrupted pose (wrong scale, millions of units away).
+   *  - here: reject invalid poses, low-pass jitter with an adaptive factor (fast moves follow immediately),
+   *    jump straight to the new pose after the marker was lost, and keep the content on screen
+   *    (frozen at its last pose) for 0.7 s so brief detection drops don't make everything blink out. */
+  AFRAME.registerComponent('marker-hold', {
+    init() {
+      this.have = false; this.wasLost = true; this.lostAt = 0; this.badSince = 0;
+      this.fp = new THREE.Vector3(); this.fq = new THREE.Quaternion();           // filtered pose
+      this.tp = new THREE.Vector3(); this.tq = new THREE.Quaternion();           // latest valid detection
+      this.P = new THREE.Vector3(); this.Q = new THREE.Quaternion(); this.S = new THREE.Vector3();
+      this.written = new THREE.Matrix4(); this.ONE = new THREE.Vector3(1, 1, 1);
+      // run right before every render: after AR.js (whatever the component order) and before the matrices are used
+      const scene = this.el.sceneEl.object3D, prev = scene.onBeforeRender;
+      scene.onBeforeRender = (...args) => { this.apply(performance.now()); if (prev) prev.apply(scene, args); };
+    },
+    apply(t) {
+      this.filter(t);
+      const shown = this.el.object3D.visible;               // app state follows what is really drawn
+      if (shown !== this.lastShown) {
+        this.lastShown = shown;
+        Log.add(shown ? 'marker visible' : 'marker hidden');
+        setMarker(shown);
+      }
+    },
+    filter(t) {
+      const o = this.el.object3D;
+      if (!o.visible) {                                    // AR.js says: marker not detected
+        if (!this.have) return;
+        if (!this.lostAt) this.lostAt = t;
+        this.wasLost = true;
+        if (t - this.lostAt < 700) {                       // grace period: keep showing the last valid pose
+          o.visible = true;
+          o.matrix.compose(this.fp, this.fq, this.ONE); this.written.copy(o.matrix); o.matrixWorldNeedsUpdate = true;
+        }
+        return;
+      }
+      this.lostAt = 0;
+      if (!o.matrix.equals(this.written)) {                // a fresh detection was written by AR.js
+        o.matrix.decompose(this.P, this.Q, this.S);
+        const ok = isFinite(this.P.x + this.P.y + this.P.z + this.Q.x + this.Q.w) &&
+          Math.abs(this.S.x - 1) < 0.15 && this.P.length() < 60;
+        if (ok) {
+          this.badSince = 0;
+          this.tp.copy(this.P); this.tq.copy(this.Q);
+          if (!this.have || this.wasLost) { this.fp.copy(this.tp); this.fq.copy(this.tq); this.have = true; MarkerStats.snaps++; }
+        } else {
+          MarkerStats.rejected++;
+          if (!this.badSince) this.badSince = t;
+          if (t - this.badSince > 1000) { this.have = false; this.wasLost = true; }   // detections stay invalid: treat as lost
+        }
+      }
+      this.wasLost = false;
+      if (!this.have) { o.visible = false; return; }
+      const dp = this.fp.distanceTo(this.tp), ang = this.fq.angleTo(this.tq);
+      const k = (dp > 1.5 || ang > 0.8) ? 1 : clamp(0.3 + dp * 2 + ang * 1.5, 0.3, 1);   // small change: smooth, big: follow
+      this.fp.lerp(this.tp, k); this.fq.slerp(this.tq, k);
+      o.matrix.compose(this.fp, this.fq, this.ONE);
+      this.written.copy(o.matrix);
+      o.matrixWorldNeedsUpdate = true;
+    }
+  });
 
   function setMarker(visible) {
     if (App.markerVisible === visible) return;
@@ -1174,8 +1382,13 @@
 
     if (kind === 'marker') {
       const marker = $('#marker');
-      marker.addEventListener('markerFound', () => setMarker(true));
-      marker.addEventListener('markerLost', () => setMarker(false));
+      syncCanvasToVideo();
+      // visibility itself is decided by the pose filter (marker-hold); here we only count AR.js events
+      marker.addEventListener('markerFound', () => { MarkerStats.found++; });
+      marker.addEventListener('markerLost', () => { MarkerStats.lost++; });
+      // added after AR.js's own components so it runs after them each frame
+      const attachHold = () => marker.setAttribute('marker-hold', '');
+      if (sceneEl.hasLoaded) attachHold(); else sceneEl.addEventListener('loaded', attachHold, { once: true });
     } else if (kind === 'xr') {
       const enter = () => {
         try { Promise.resolve(sceneEl.enterAR()).catch(askEnter); } catch (e) { askEnter(e); }
@@ -1254,6 +1467,13 @@
       const on = Sfx.toggleSfx();
       sfxBtn.classList.toggle('off', !on); sfxBtn.textContent = on ? '🔊' : '🔇'; Sfx.ui();
     });
+    $('#m-body').addEventListener('click', (e) => {
+      const b = e.target.closest('button.seg');
+      if (!b) return;
+      if (b.dataset.fov) store.set('ar_fov', Number(b.dataset.fov));
+      if (b.dataset.q) store.set('ar_q', b.dataset.q);
+      location.reload();
+    });
     $('#info-prev').addEventListener('click', () => Explore.step(-1));
     $('#info-next').addEventListener('click', () => Explore.step(1));
     $('#info-close').addEventListener('click', () => { Sfx.ui(); Explore.hideInfo(); });
@@ -1280,8 +1500,12 @@
       App.showLabels = !App.showLabels; e.currentTarget.classList.toggle('active', App.showLabels);
       App.universe && App.universe.applyToggles(); Sfx.ui();
     });
+    $('#t-depth').addEventListener('click', (e) => {
+      App.depth = !App.depth; e.currentTarget.classList.toggle('active', App.depth);
+      toast(App.depth ? '3D depth on (orbit tilts exaggerated)' : 'Flat, true-to-scale orbits', '', 1800); Sfx.ui();
+    });
     $('#t-reset').addEventListener('click', () => {
-      App.yaw = 0; App.tilt = 0.35; App.scale = App.defScale; Sfx.ui();
+      App.yaw = 0; App.tilt = App.defTilt; App.scale = App.defScale; Sfx.ui();
     });
 
     $('#g-best').textContent = store.get('ar_best_game', 0);
