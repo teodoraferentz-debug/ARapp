@@ -7,7 +7,7 @@ The Solar System appears in your camera view — on a real surface, floating in 
 
 | Mode | How it works | Devices |
 |---|---|---|
-| 🌍 **Markerless — surfaces (WebXR)** | The phone detects the floor/table (ARCore). Move the phone, a blue circle appears, **tap the screen** and the universe stays anchored in space — walk around it. The 📍 *Move* button re-places it | Android + Chrome (with “Google Play Services for AR”) |
+| 🌍 **Markerless — surfaces (WebXR)** | The phone detects the floor/table (ARCore). Move the phone slowly; when a surface is found the universe is **placed automatically** (if none is found within ~7 s it appears in front of you). It stays anchored — walk around it. Tap objects directly; use the ＋ － ↺ ↻ buttons to zoom/turn. The 📍 *Move* button re-places it | Android + Chrome (with “Google Play Services for AR”) |
 | 🌍 **Markerless — 3DoF** | Camera + gyroscope: the universe floats ~1.2 m in front of you and stays put when you rotate the phone. It is not anchored if you walk around. 📍 *Move* re-centers it | Any phone, including iPhone/Safari |
 | ⌗ **Hiro marker** | The universe appears on top of a printed marker | Any phone |
 | 🖥️ **Demo** | No camera, for PC / presentations | Any browser |

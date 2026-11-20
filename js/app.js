@@ -55,6 +55,13 @@
     xr:     { y: 0.35, scale: 0.3 },
     gyro:   { y: 0,   scale: 0.28 }
   };
+  // minimum real-world radius (in metres, for xr/gyro) of a tappable object, so small planets are easy to hit
+  const HIT_MIN = { marker: 0, demo: 0, xr: 0.05, gyro: 0.05 };
+  function fitHit(hit) {
+    const base = hit.userData.baseR;
+    hit.scale.setScalar(HIT_MIN[App.kind] ? Math.max(1, HIT_MIN[App.kind] / (base * App.scale)) : 1);
+  }
+
   function setScaleFor(kind) {
     App.kind = kind;
     App.demo = kind === 'demo';
@@ -62,6 +69,18 @@
     App.scaleMin = App.defScale * 0.4;
     App.scaleMax = App.defScale * 2.7;
   }
+
+  /* tiny on-device log: shown in the Help dialog so problems on a phone can be diagnosed */
+  const Log = window.Log = {
+    lines: [],
+    add(msg) {
+      this.lines.push(((performance.now() / 1000) | 0) + 's  ' + msg);
+      if (this.lines.length > 40) this.lines.shift();
+    },
+    text() { return this.lines.join('\n'); }
+  };
+  window.addEventListener('error', (e) => { Log.add('ERROR ' + e.message); try { toast('⚠ ' + e.message, 'bad', 4000); } catch (x) { /* ignore */ } });
+  window.addEventListener('unhandledrejection', (e) => { Log.add('REJECTED ' + (e.reason && e.reason.message || e.reason)); });
 
   function vibrate(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) { /* ignore */ } }
 
@@ -233,7 +252,7 @@
       this.center.add(glow);
 
       const hit = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), new THREE.MeshBasicMaterial({ visible: false }));
-      hit.userData = { kind: 'planet', id: 'sun' };
+      hit.userData = { kind: 'planet', id: 'sun', baseR: 0.2 };
       this.sun.add(hit);
       this.pickables.push(hit);
       this.byId.sun = { mesh: this.sun, size: 0.14, data: SUN };
@@ -276,11 +295,9 @@
           holder.add(ring);
         }
 
-        const hit = new THREE.Mesh(
-          new THREE.SphereGeometry(Math.max(p.size * 1.6, 0.075), 8, 6),
-          new THREE.MeshBasicMaterial({ visible: false })
-        );
-        hit.userData = { kind: 'planet', id: p.id };
+        const hitR = Math.max(p.size * 1.6, 0.075);
+        const hit = new THREE.Mesh(new THREE.SphereGeometry(hitR, 8, 6), new THREE.MeshBasicMaterial({ visible: false }));
+        hit.userData = { kind: 'planet', id: p.id, baseR: hitR };
         holder.add(hit);
         this.pickables.push(hit);
 
@@ -410,6 +427,7 @@
       const dt = Math.min(dtMs, 100) / 1000;
       this.root.scale.setScalar(App.scale);
       this.spin.rotation.set(App.tilt, App.yaw, 0);
+      this.pickables.forEach(fitHit);
 
       if (!App.markerVisible) return;
 
@@ -590,10 +608,11 @@
       }
       obj.add(body);
 
-      const hit = new THREE.Mesh(new THREE.SphereGeometry(Math.max(size * 2.2, 0.11), 6, 5), new THREE.MeshBasicMaterial({ visible: false }));
+      const hitR = Math.max(size * 2.2, 0.11);
+      const hit = new THREE.Mesh(new THREE.SphereGeometry(hitR, 6, 5), new THREE.MeshBasicMaterial({ visible: false }));
       const item = { obj, body, kind, size, speed: speed * (1 + 0.12 * (this.level - 1)), dead: false,
         spinAxis: new THREE.Vector3(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize(), spinSpd: rand(1, 3) };
-      hit.userData = { kind: 'asteroid', item };
+      hit.userData = { kind: 'asteroid', item, baseR: hitR };
       obj.add(hit);
       item.hit = hit;
       U.gameGroup.add(obj);
@@ -623,6 +642,7 @@
         const p = a.obj.position, len = p.length();
         p.multiplyScalar(Math.max(len - a.speed * d, 0) / len);
         a.body.rotateOnAxis(a.spinAxis, a.spinSpd * d);
+        fitHit(a.hit);
         if (len < 0.18) this.damage(a, i);
       }
 
@@ -706,25 +726,49 @@
     const ignore = (e) => !App.started || !!e.target.closest('button, .card, .overlay, .hud, #nav, #strip, #tools');
     const gesturesOn = () => App.mode !== 'game';
 
-    function pick(x, y) {
-      const sceneEl = $('a-scene');
-      const cam = sceneEl && sceneEl.camera;   // in WebXR three.js updates its pose every frame
-      const U = App.universe;
-      if (!cam || !U || !App.markerVisible) return null;
-      ndc.set((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
-      raycaster.setFromCamera(ndc, cam);
-      const list = App.mode === 'game' ? Game.pickables : U.pickables;
-      const hits = raycaster.intersectObjects(list, false);
-      return hits.length ? hits[0].object.userData : null;
+    // among all intersected hit-areas choose the one whose centre is closest to the ray
+    // (the hit-areas of neighbouring planets overlap once they are made finger-sized)
+    function best(hits) {
+      let bestHit = null, bestD = Infinity;
+      const v = new THREE.Vector3();
+      hits.forEach((h) => {
+        h.object.getWorldPosition(v);
+        const d = raycaster.ray.distanceToPoint(v);
+        if (d < bestD) { bestD = d; bestHit = h; }
+      });
+      return bestHit ? bestHit.object.userData : null;
     }
 
-    function tap(x, y) {
+    function candidates() {
+      const U = App.universe;
+      return App.mode === 'game' ? Game.pickables : (U ? U.pickables : []);
+    }
+
+    function pick(x, y) {                       // from a screen point (marker / 3DoF / demo)
+      const sceneEl = $('a-scene');
+      const cam = sceneEl && sceneEl.camera;
+      if (!cam || !App.universe || !App.markerVisible) return null;
+      ndc.set((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
+      raycaster.setFromCamera(ndc, cam);
+      return best(raycaster.intersectObjects(candidates(), false));
+    }
+
+    function pickRay(origin, dir) {             // from a WebXR input ray
+      if (!App.universe || !App.markerVisible) return null;
+      raycaster.ray.origin.copy(origin);
+      raycaster.ray.direction.copy(dir).normalize();
+      return best(raycaster.intersectObjects(candidates(), false));
+    }
+
+    function dispatch(hit) {
+      XR_LOG.taps++;
       if (App.kind === 'xr' && !App.xrPlaced) { XR.place(); return; }
-      const hit = pick(x, y);
       if (App.mode === 'explore') Explore.onTap(hit);
       else if (App.mode === 'quiz') Quiz.onTap(hit);
       else Game.onTap(hit);
     }
+
+    function tap(x, y) { dispatch(pick(x, y)); }
 
     window.addEventListener('pointerdown', (e) => {
       if (ignore(e)) return;
@@ -757,7 +801,15 @@
       const wasSingle = pointers.size === 1;
       pointers.delete(e.pointerId);
       if (pointers.size < 2) pinch = null;
-      if (e.type === 'pointerup' && wasSingle && p.moved < 14 && performance.now() - p.t < 450) tap(e.clientX, e.clientY);
+      // in WebXR taps arrive as `select` events with an exact ray (see xr-placement), not as pointer events
+      if (e.type === 'pointerup' && wasSingle && p.moved < 14 && performance.now() - p.t < 450) {
+        if (App.kind !== 'xr') tap(e.clientX, e.clientY);
+        else {
+          // safety net: if the AR session does not deliver a `select` for this touch, fall back to the screen point
+          const t0 = performance.now(), x = e.clientX, y = e.clientY;
+          setTimeout(() => { if (XR_LOG.lastSelect < t0 - 80) { Log.add('tap fallback (no select event)'); tap(x, y); } }, 300);
+        }
+      }
     }
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', end);
@@ -769,8 +821,10 @@
     }, { passive: true });
 
     window.addEventListener('contextmenu', (e) => e.preventDefault());
-    return { pick };
+    return { pick, pickRay, dispatch };
   })();
+
+  const XR_LOG = { taps: 0, lastSelect: 0 };
 
   /* ======================================================================
    * 6. UI + scene start-up
@@ -822,8 +876,8 @@
 
     HINTS: {
       marker:    ['⌗', 'Point the camera at the <b>Hiro marker</b>', 'Keep it well lit and fully in view'],
-      xrSearch:  ['📱', 'Move your phone <b>slowly</b> and look at the floor or a table', 'Looking for a flat surface…'],
-      xrReady:   ['📍', 'Tap the screen to <b>place</b> the universe here', 'The blue circle shows where it will appear']
+      xrSearch:  ['📱', 'Move your phone <b>slowly</b> and look at the floor or a table', 'Looking for a flat surface… (it appears in front of you if none is found)'],
+      xrReady:   ['📍', 'Surface found — <b>hold steady</b>', 'The universe will appear here automatically']
     },
 
     updateHint() {
@@ -868,31 +922,74 @@
         '<li><b>☄️ Game</b> — tap asteroids before they hit the Sun. Blue comets are fast (+25), golden asteroids slow time. You have 3 lives.</li>' +
         '<li><b>🎵 🔊</b> — turn music and sound effects on or off. <b>🏠</b> goes back to the menu.</li>' +
         extra +
-        '</ul>');
+        '</ul>' +
+        '<details class="diag"><summary>Diagnostics</summary><pre>' + (navigator.userAgent.replace(/</g, '&lt;')) + '\nmode: ' + App.kind +
+        ' · xrSupported: ' + App.xrSupported + '\n' + Log.text().replace(/</g, '&lt;') + '</pre></details>');
     }
   };
 
   /* ---------- Markerless AR, option 1: WebXR (Android/Chrome) — hit-test on real surfaces ---------- */
   const XR = {
-    hitSource: null, reticle: null, state: 'search',
+    hitSource: null, reticle: null, state: 'search', active: false,
+    elapsed: 0, stable: 0, last: null,
+
     setState(st) { if (st !== this.state) { this.state = st; UI.updateHint(); } },
-    place() {
-      if (!this.reticle || !this.reticle.visible) { toast('Keep looking for a flat surface…', 'bad'); return; }
+
+    reset() { this.elapsed = 0; this.stable = 0; this.last = null; this.setState('search'); },
+
+    /* called every frame while waiting for a placement.
+     * `pos` = latest surface hit (Vector3) or null.
+     * A surface that stays put for 1 s is used automatically; after 7 s without one the
+     * universe is placed in front of the user so something always appears. */
+    step(dt, pos) {
+      if (App.xrPlaced) return;
+      this.elapsed += dt;
+      if (pos) {
+        this.stable = (this.last && this.last.distanceTo(pos) < 0.15) ? this.stable + dt : 0;
+        this.last = (this.last || new THREE.Vector3()).copy(pos);
+        this.setState('ready');
+        if (this.stable >= 1.0) { this.placeAt(this.last, 'surface'); return; }
+      } else {
+        this.stable = 0; this.last = null;
+        this.setState('search');
+      }
+      if (this.elapsed > 7) this.placeInFront();
+    },
+
+    placeAt(pos, how) {
       const w = $('#world').object3D;
-      w.position.setFromMatrixPosition(this.reticle.matrix);
+      w.position.copy(pos);
       w.visible = true;
       App.xrPlaced = true;
-      this.reticle.visible = false;
+      if (this.reticle) this.reticle.visible = false;
       setMarker(true);
+      Log.add('placed (' + how + ') at ' + [pos.x, pos.y, pos.z].map((n) => n.toFixed(2)).join(', '));
       Sfx.place(); vibrate(30);
-      toast('Placed! Walk around it 🚶', 'good', 1800);
+      toast(how === 'surface' ? 'Placed! Walk around it 🚶' : 'No surface found — placed in front of you. Use 📍 Move to try again', how === 'surface' ? 'good' : '', how === 'surface' ? 1800 : 3500);
     },
-    replace() {
+
+    placeInFront() {
+      const cam = $('a-scene').camera;
+      const dir = new THREE.Vector3(), pos = new THREE.Vector3();
+      cam.getWorldDirection(dir); dir.y = 0;
+      if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
+      dir.normalize();
+      cam.getWorldPosition(pos);
+      this.placeAt(new THREE.Vector3(pos.x + dir.x * 1.1, pos.y - 0.45, pos.z + dir.z * 1.1), 'in front');
+    },
+
+    place() {                                      // user tapped while searching: place right now
+      if (this.reticle && this.reticle.visible) this.placeAt(new THREE.Vector3().setFromMatrixPosition(this.reticle.matrix), 'surface');
+      else this.placeInFront();
+    },
+
+    replace() {                                    // 📍 Move: pick the universe up and search again
       App.xrPlaced = false;
       $('#world').object3D.visible = false;
       Game.stop(); Explore.hideInfo();
       setMarker(false);
-      Sfx.tap();
+      this.reset();
+      Sfx.ui();
     }
   };
 
@@ -907,32 +1004,55 @@
       ring.visible = false;
       sceneEl.object3D.add(ring);
       XR.reticle = ring;
+      const tmpO = new THREE.Vector3(), tmpD = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
+
+      // a tap in the AR session = XR `select` event with an exact ray from the screen point
+      const onSelect = (ev) => {
+        Log.add('select event'); XR_LOG.lastSelect = performance.now();
+        if (!App.xrPlaced) { XR.place(); return; }
+        const ref = sceneEl.renderer.xr.getReferenceSpace();
+        const pose = ev.frame && ev.inputSource && ev.frame.getPose(ev.inputSource.targetRaySpace, ref);
+        if (!pose) { Log.add('select: no pose'); return; }
+        const t = pose.transform;
+        tmpO.set(t.position.x, t.position.y, t.position.z);
+        tmpD.set(0, 0, -1).applyQuaternion(tmpQ.set(t.orientation.x, t.orientation.y, t.orientation.z, t.orientation.w));
+        Input.dispatch(Input.pickRay(tmpO, tmpD));
+      };
 
       sceneEl.addEventListener('enter-vr', () => {
         if (!sceneEl.is('ar-mode')) return;
         const session = sceneEl.renderer.xr.getSession();
-        if (!session || !session.requestHitTestSource) { toast('This device cannot detect surfaces', 'bad', 3000); return; }
+        Log.add('AR session started');
+        XR.active = true; XR.reset();
+        if (!session) return;
+        session.addEventListener('select', onSelect);
+        if (!session.requestHitTestSource) { Log.add('hit-test not available'); return; }
         session.requestReferenceSpace('viewer')
           .then((vs) => session.requestHitTestSource({ space: vs }))
-          .then((src) => { XR.hitSource = src; })
-          .catch(() => toast('Could not start surface detection', 'bad', 3000));
+          .then((src) => { XR.hitSource = src; Log.add('hit-test source ready'); })
+          .catch((e) => Log.add('hit-test failed: ' + (e && e.message || e)));
       });
-      sceneEl.addEventListener('exit-vr', () => { XR.hitSource = null; location.reload(); });
+      sceneEl.addEventListener('exit-vr', () => { XR.hitSource = null; XR.active = false; location.reload(); });
     },
-    tick() {
+    tick(time, dtMs) {
+      if (!XR.active || App.xrPlaced) return;
+      const dt = Math.min(dtMs, 100) / 1000;
+      let pos = null;
       const frame = this.el.frame;
-      if (!frame || !XR.hitSource || App.xrPlaced) return;
-      const res = frame.getHitTestResults(XR.hitSource);
-      const pose = res.length ? res[0].getPose(this.el.renderer.xr.getReferenceSpace()) : null;
-      if (pose) {
-        XR.reticle.visible = true;
-        XR.reticle.matrix.fromArray(pose.transform.matrix);
-        XR.reticle.matrixWorldNeedsUpdate = true;
-        XR.setState('ready');
-      } else {
-        XR.reticle.visible = false;
-        XR.setState('search');
+      if (frame && XR.hitSource) {
+        try {
+          const res = frame.getHitTestResults(XR.hitSource);
+          const pose = res.length ? res[0].getPose(this.el.renderer.xr.getReferenceSpace()) : null;
+          if (pose) {
+            XR.reticle.visible = true;
+            XR.reticle.matrix.fromArray(pose.transform.matrix);
+            XR.reticle.matrixWorldNeedsUpdate = true;
+            pos = new THREE.Vector3().setFromMatrixPosition(XR.reticle.matrix);
+            if (!XR.sawHit) { XR.sawHit = true; Log.add('first surface hit'); }
+          } else XR.reticle.visible = false;
+        } catch (e) { Log.add('hit-test error: ' + e.message); }
       }
+      XR.step(dt, pos);
     }
   });
 
@@ -963,7 +1083,7 @@
     }
   };
 
-  App.XR = XR; App.Gyro = Gyro;   // exposed for debugging/tests
+  App.XR = XR; App.Gyro = Gyro; App.Input = Input;   // exposed for debugging/tests
 
   function sceneHtml(kind) {
     const y = KIND[kind].y;
@@ -1029,6 +1149,8 @@
       try { await loadArjs(); } catch (e) { toast(e.message, 'bad', 3500); return; }
     }
     setScaleFor(kind);
+    document.body.dataset.kind = kind;
+    Log.add('start: ' + kind + ' (xrSupported=' + App.xrSupported + ')');
     if (kind !== 'demo') document.documentElement.classList.add('ar');   // keep the camera (video/passthrough) visible
     if (kind === 'gyro') Gyro.startCamera();
 
@@ -1090,8 +1212,23 @@
     $('#btn-start-ar').addEventListener('click', () => boot('marker'));
     $('#btn-start-demo').addEventListener('click', () => boot('demo'));
     $('#t-place').addEventListener('click', () => { if (App.kind === 'xr') XR.replace(); else { Gyro.recenter(); Sfx.ui(); } });
-    // in WebXR, taps on the UI must not become “select” events in the scene
-    $('#app-ui').addEventListener('beforexrselect', (e) => e.preventDefault());
+    // in WebXR, taps on UI controls must not become “select” events in the scene
+    // (the empty background of #app-ui is NOT blocked, so taps there reach the scene as `select`)
+    document.querySelectorAll('button, .card, .overlay, #strip, #tools, #nav, #viewctl')
+      .forEach((el) => el.addEventListener('beforexrselect', (e) => e.preventDefault()));
+
+    // on-screen zoom / turn buttons (hold to repeat) — reliable where pinch/drag are not
+    const holdBtn = (id, fn) => {
+      const el = $(id); let timer = 0, lastDown = 0;
+      const stop = () => { clearInterval(timer); timer = 0; };
+      el.addEventListener('pointerdown', () => { lastDown = performance.now(); fn(); stop(); timer = setInterval(fn, 70); });
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => el.addEventListener(ev, stop));
+      el.addEventListener('click', () => { if (performance.now() - lastDown > 700) fn(); });   // fallback when no pointer events
+    };
+    holdBtn('#v-in',    () => { App.scale = clamp(App.scale * 1.06, App.scaleMin, App.scaleMax); });
+    holdBtn('#v-out',   () => { App.scale = clamp(App.scale / 1.06, App.scaleMin, App.scaleMax); });
+    holdBtn('#v-left',  () => { App.yaw -= 0.1; });
+    holdBtn('#v-right', () => { App.yaw += 0.1; });
     detectXR();
     buildStrip();
     $('#btn-help').addEventListener('click', () => { Sfx.ui(); UI.help(); });

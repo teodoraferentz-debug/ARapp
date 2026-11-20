@@ -236,3 +236,10 @@ h2 { margin: 0 0 8px; }
 .features span { padding: 4px 11px; border-radius: 999px; background: rgba(255,255,255,.08); font-size: 13px; }
 
 .note a { color: var(--accent); }
+
+/* ---------- zoom / turn buttons for markerless AR ---------- */
+#viewctl { left: 12px; top: calc(var(--safe-t) + 64px); display: none; flex-direction: row; gap: 6px; }
+body[data-started="true"][data-mode="explore"][data-kind="xr"] #viewctl,
+body[data-started="true"][data-mode="explore"][data-kind="gyro"] #viewctl { display: flex; }
+body[data-mode="explore"][data-kind="xr"] .coach,
+body[data-mode="explore"][data-kind="gyro"] .coach { top: calc(var(--safe-t) + 118px); }
