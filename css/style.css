@@ -82,13 +82,55 @@ body[data-started="false"] .hud, body[data-started="false"] #nav, body[data-star
 .best b { color: var(--accent-2); }
 .slowbar { margin-top: 6px; color: var(--accent); font-weight: 600; }
 
-/* ---------- unelte explorare ---------- */
+/* ---------- explore tools (icon + caption) ---------- */
 #tools {
-  right: 12px; top: 50%; transform: translateY(-50%);
-  display: none; flex-direction: column; gap: 10px;
+  right: 10px; top: 50%; transform: translateY(-50%);
+  display: none; flex-direction: column; gap: 8px;
 }
 body[data-mode="explore"][data-started="true"] #tools { display: flex; }
-.tool { font-size: 16px; }
+.tool {
+  width: 56px; padding: 6px 2px 5px; border-radius: 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  background: var(--bg); border: 1px solid var(--line);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  transition: transform .12s, background .2s;
+}
+.tool:active { transform: scale(.93); }
+.tool .ico { font-size: 18px; font-weight: 700; line-height: 1.25; min-height: 22px; }
+.tool .cap { font-size: 10px; font-weight: 600; color: var(--muted); letter-spacing: .2px; }
+.tool.active { background: rgba(106, 168, 255, .38); border-color: var(--accent); }
+.tool.active .cap { color: var(--text); }
+.round.off { opacity: .45; filter: grayscale(1); }
+
+/* ---------- planet picker strip ---------- */
+#strip {
+  left: 12px; right: 12px; bottom: calc(var(--safe-b) + 84px);
+  display: none; gap: 6px; overflow-x: auto; padding: 2px 0;
+  touch-action: pan-x; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+#strip::-webkit-scrollbar { display: none; }
+body[data-mode="explore"][data-started="true"] #strip { display: flex; }
+.chipbtn {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  background: var(--bg); border: 1px solid var(--line);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.chipbtn i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; box-shadow: 0 0 6px currentColor; }
+.chipbtn.active { background: rgba(106, 168, 255, .38); border-color: var(--accent); }
+
+/* ---------- coach tip ---------- */
+.coach {
+  position: fixed; z-index: 16; left: 50%; top: calc(var(--safe-t) + 66px);
+  transform: translate(-50%, -6px); max-width: min(92vw, 520px); text-align: center;
+  padding: 9px 16px; border-radius: 14px; font-size: 14px; line-height: 1.35; pointer-events: none;
+  background: rgba(30, 60, 130, .82); border: 1px solid var(--accent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  opacity: 0; transition: opacity .3s, transform .3s;
+}
+.coach.show { opacity: 1; transform: translate(-50%, 0); }
+body[data-mode="quiz"] .coach { top: calc(var(--safe-t) + 170px); }
+body[data-mode="game"] .coach { top: calc(var(--safe-t) + 128px); }
 
 /* ---------- navigare ---------- */
 #nav {
@@ -107,8 +149,8 @@ body[data-mode="explore"][data-started="true"] #tools { display: flex; }
 
 /* ---------- card informații ---------- */
 .card {
-  left: 12px; right: 12px; bottom: calc(var(--safe-b) + 92px);
-  padding: 14px 16px; border-radius: 20px; max-height: 46vh; overflow: auto;
+  left: 12px; right: 12px; bottom: calc(var(--safe-b) + 132px);
+  padding: 14px 16px; border-radius: 20px; max-height: 44vh; overflow: auto;
   animation: rise .22s ease-out;
 }
 .card h2 { margin: 0 34px 8px 0; font-size: 22px; }
@@ -177,13 +219,20 @@ h2 { margin: 0 0 8px; }
 #m-body .fact { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.07); font-size: 14px; }
 
 @media (max-width: 699px) {
-  #info.card { right: 68px; }   /* lasă coloana de butoane liberă */
+  #info.card { right: 76px; }   /* lasă coloana de butoane liberă */
 }
 
 @media (min-width: 700px) {
-  .hud, .card { left: 50%; right: auto; width: 560px; transform: translateX(-50%); }
+  .hud, .card, #strip { left: 50%; right: auto; width: 560px; transform: translateX(-50%); }
   #nav { left: 50%; right: auto; width: 460px; transform: translateX(-50%); }
 }
 
 .err { color: var(--bad) !important; word-break: break-word; }
 .err[hidden] { display: none; }
+
+.card-nav { display: flex; gap: 8px; margin-top: 10px; }
+.card-nav .secondary { margin-top: 0; padding: 9px; font-size: 14px; }
+.features { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 0 0 14px; }
+.features span { padding: 4px 11px; border-radius: 999px; background: rgba(255,255,255,.08); font-size: 13px; }
+
+.note a { color: var(--accent); }

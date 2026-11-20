@@ -1,74 +1,81 @@
-# 🪐 AR Cosmos — Sistemul Solar în realitate augmentată
+# 🪐 AR Cosmos — the Solar System in augmented reality
 
-Aplicație **WebAR** (rulează în browserul telefonului, fără instalare) construită cu **A-Frame + AR.js**.
-Sistemul Solar apare în camera telefonului — pe o suprafață reală, plutind în fața ta sau pe un marker — cu trei moduri interactive (explorare, quiz, joc).
+A **WebAR** app that runs in your phone's browser (nothing to install), built with **A-Frame, AR.js and WebXR**.
+The Solar System appears in your camera view — on a real surface, floating in front of you, or on a printed marker — with three interactive modes and music.
 
-## Moduri AR
+## AR modes
 
-| Mod | Cum funcționează | Dispozitive |
+| Mode | How it works | Devices |
 |---|---|---|
-| 🌍 **AR fără marker — suprafețe (WebXR)** | Telefonul detectează podeaua/masa (ARCore). Miști telefonul, apare un cerc albastru, **atingi ecranul** și universul rămâne ancorat în spațiu — poți merge în jurul lui. Butonul 📍 îl replasează | Android + Chrome (cu „Google Play Services for AR”) |
-| 🌍 **AR fără marker — 3DoF** | Camera + giroscopul: universul plutește ~1,2 m în fața ta și rămâne fix când rotești telefonul. Dacă te mișți prin cameră, nu rămâne ancorat în loc. Butonul 📍 îl recentrează | Orice telefon, inclusiv iPhone/Safari |
-| ⌗ **AR cu marker Hiro** | Universul apare pe un marker printat | Orice telefon |
-| 🖥️ **Demo** | Fără cameră, pentru PC/prezentare | Orice browser |
+| 🌍 **Markerless — surfaces (WebXR)** | The phone detects the floor/table (ARCore). Move the phone, a blue circle appears, **tap the screen** and the universe stays anchored in space — walk around it. The 📍 *Move* button re-places it | Android + Chrome (with “Google Play Services for AR”) |
+| 🌍 **Markerless — 3DoF** | Camera + gyroscope: the universe floats ~1.2 m in front of you and stays put when you rotate the phone. It is not anchored if you walk around. 📍 *Move* re-centers it | Any phone, including iPhone/Safari |
+| ⌗ **Hiro marker** | The universe appears on top of a printed marker | Any phone |
+| 🖥️ **Demo** | No camera, for PC / presentations | Any browser |
 
-Butonul **„Pornește AR fără marker”** alege automat varianta potrivită telefonului. iPhone-ul nu suportă WebXR în Safari, de aceea acolo se folosește varianta 3DoF.
+**“Start AR (no marker)”** automatically picks the right option for the phone. Safari on iPhone has no WebXR, so it uses 3DoF there.
 
-## Interacțiuni
+## Features
 
-| Mod | Ce poți face |
+| Mode | What you can do |
 |---|---|
-| 🔭 **Explorează** (educațional) | **Tap** pe planetă → card cu diametru, distanță, durata anului/zilei, temperatură, sateliți, curiozitate · **Drag** (1 deget) → rotești/înclini sistemul · **Pinch** (2 degete) → mărești/micșorezi · butoane: pauză, viteză orbite (¼×–12×), orbite on/off, etichete on/off, resetare vedere |
-| 🎯 **Quiz** | 8 întrebări aleatoare din 15; răspunzi **atingând planeta** în AR (numele sunt ascunse). Feedback verde/roșu, sunet, vibrație, scor, record salvat |
-| ☄️ **Joc** „Apără Soarele” | Asteroizii zboară spre Soare; îi distrugi cu **tap**. 3 vieți, niveluri tot mai grele. Asteroid auriu = timp încetinit 5 s, cometă albastră = rapidă (+25). Explozii, scor, record salvat, „Știai că…” la final |
+| 🔭 **Explore** | **Tap** a planet — or pick it in the **planet bar** at the bottom — for a fact card (diameter, distance, year, day, temperature, moons, a fun fact) · **◀ ▶** to browse planets · **Drag** to rotate/tilt · **Pinch** to zoom · labelled tools: Pause, Speed (¼×–12×), Orbits, Names, Reset |
+| 🎯 **Quiz** | 8 random questions out of 15; answer by **tapping the planet** in AR (names are hidden). Green/red feedback, sound, vibration, saved best score |
+| ☄️ **Game** “Defend the Sun” | Asteroids fly toward the Sun — **tap** them to destroy them. 3 lives, rising levels. Golden asteroid = slow motion for 5 s, blue comet = fast (+25). Explosions, saved best score, a “Did you know…” fact at the end |
 
-Extra: efecte sonore generate în cod (WebAudio), vibrații, pauză automată când markerul iese din cadru, **mod demo** fără cameră (pentru dezvoltare/prezentare pe PC).
+**Easy navigation:** a first-run tutorial, the **?** button any time, a short tip every time you switch mode, a **🏠** button back to the menu, labelled tool buttons, and the always-visible mode tabs.
 
-## Rulare
+**Sound:** synthesized with WebAudio — no audio files, works offline.
+- 🎵 **Music** — generative ambient music with a different feel per mode (calm pad in Explore, light plucks in Quiz, driving beat in Game that speeds up with the level).
+- 🔊 **Effects** — a unique musical note per planet, UI clicks, correct/wrong, explosions, hits, level-up, game over, victory jingle.
+- Music and effects can be switched off separately (🎵 / 🔊); your choice is remembered. Sound pauses when the app is in the background.
 
-Necesită doar Node.js (nu are dependențe npm; bibliotecile sunt incluse în `vendor/`).
+## Run it
+
+Needs only Node.js (no npm dependencies; the libraries are included in `vendor/`).
 
 ```bash
-npm start          # http://localhost:8080  (merge cu camera web pe PC)
-npm run https      # https://localhost:8443 (certificat self-signed, pentru telefon)
+npm start          # http://localhost:8080  (works with a laptop webcam)
+npm run https      # https://localhost:8443 (self-signed certificate, for phones)
 ```
 
-### Pe telefon
-Camera browserului cere **HTTPS**. Variante:
-1. `npm run https`, apoi deschizi pe telefon adresa `https://<IP-ul-PC-ului>:8443` (afișată în consolă; telefonul și PC-ul în aceeași rețea) și accepți avertismentul de certificat.
-2. Publici folderul pe **GitHub Pages** / Netlify / Vercel (HTTPS automat) — varianta cea mai simplă pentru prezentare.
-3. Un tunel HTTPS, ex. `npx localtunnel --port 8080`.
+### On a phone
+The browser camera requires **HTTPS**. Options:
+1. `npm run https`, then open `https://<your-PC-IP>:8443` on the phone (printed in the console; same Wi-Fi) and accept the certificate warning.
+2. Publish the folder on **GitHub Pages** / Netlify / Vercel (HTTPS automatically) — the easiest for a demo.
+3. An HTTPS tunnel, e.g. `npx localtunnel --port 8080`.
 
-### Marker (doar pentru modul cu marker)
-Deschide `assets/hiro.png` pe alt ecran sau printează-l (negru pe alb, fără reflexii, cât mai mare). Apoi apasă **AR cu marker Hiro**.
+### Marker (only for marker mode)
+Open `assets/hiro.png` on another screen or print it (black on white, no glare, as large as you can).
 
-## Structura proiectului
+## Project structure
 
 ```
-index.html        interfața (HTML) — scena AR se creează din JS la apăsarea Start
-css/style.css     stiluri mobile-first
-js/data.js        datele educaționale (planete, întrebări quiz, curiozități)
-js/audio.js       efecte sonore WebAudio
-js/app.js         logica: componenta „universe”, moduri Explore/Quiz/Game, gesturi, UI, WebXR hit-test, 3DoF
-vendor/           A-Frame 1.5.0 + AR.js 3.4.7 (local, funcționează offline)
-data/             camera_para.dat + patt.hiro (necesare AR.js)
-assets/hiro.png   markerul de printat
-server.js         server static (HTTP/HTTPS)
+index.html        UI markup — the AR scene is created from JS when you press Start
+css/style.css     mobile-first styles
+js/data.js        educational data (planets, quiz questions, fun facts)
+js/audio.js       sound effects + generative music (WebAudio)
+js/app.js         logic: “universe” component, Explore/Quiz/Game modes, gestures, UI, WebXR hit-test, 3DoF
+vendor/           A-Frame 1.5.0 + AR.js 3.4.7 (local, works offline)
+data/             camera_para.dat + patt.hiro (needed by AR.js)
+assets/hiro.png   the printable marker
+server.js         static server (HTTP/HTTPS)
 ```
 
-Cum funcționează pe scurt:
-- `<a-marker>` (AR.js) urmărește markerul; copilul `#world` are componenta **`universe`** care construiește cu Three.js soarele, planetele (texturi procedurale desenate pe canvas), orbitele, etichetele și rulează animația în `tick()`.
-- Atingerile sunt prinse cu *Pointer Events*; un **Raycaster** trimite raza din cameră prin punctul atins și găsește planeta/asteroidul (sfere invizibile mai mari = ușor de nimerit cu degetul).
-- Modurile sunt trei obiecte (`Explore`, `Quiz`, `Game`) care primesc același eveniment *tap*.
+How it works, briefly:
+- `<a-marker>` (AR.js) tracks the marker; in markerless modes the `#world` entity is placed by WebXR hit-test or in front of the camera. It has the **`universe`** component, which builds the sun, planets (procedural canvas textures), orbits and labels with Three.js and animates them in `tick()`.
+- Taps use *Pointer Events*; a **Raycaster** shoots a ray from the camera through the touch point and finds the planet/asteroid (larger invisible spheres make small targets easy to hit).
+- The modes are three objects (`Explore`, `Quiz`, `Game`) that receive the same *tap* event.
+- `Sfx` schedules music notes a fraction of a second ahead with the WebAudio clock; the mood follows the active mode.
 
-## Personalizare rapidă
-- **Alt subiect** (anatomie, molecule, monumente…): schimbi `js/data.js` și construcția din `buildPlanets()`.
-- **Modele 3D reale**: adaugi un `.glb` și îl încarci cu `GLTFLoader` / `<a-gltf-model>`.
-- **Alt marker**: generezi unul pe https://jeromeetienne.github.io/AR.js/three.js/examples/marker-training/examples/generator.html și înlocuiești `data/patt.hiro` + `assets/hiro.png`.
-- Valorile fizice (diametre, distanțe etc.) sunt rotunjite după NASA Planetary Fact Sheet; numărul de sateliți se actualizează des — verifică-l dacă îl citezi.
+## Customize
+- **Another subject** (anatomy, molecules, monuments…): edit `js/data.js` and `buildPlanets()`.
+- **Real 3D models**: add a `.glb` and load it with `GLTFLoader` / `<a-gltf-model>`.
+- **Another marker**: generate one with the AR.js marker generator and replace `data/patt.hiro` + `assets/hiro.png`.
+- **Music**: edit the chord progression `PROG` and the `BPM` table in `js/audio.js`.
+- Physical values are rounded from the NASA Planetary Fact Sheet; moon counts change often — double-check them if you cite them.
 
-## Teste efectuate și limite
-- Verificat automat în Chromium headless: pornire, selectare planete, drag/zoom, quiz complet, joc (scor, vieți, game over), fără erori în consolă.
-- **Modul 3DoF** testat cu cameră virtuală: video de fundal, plasare în față, tap, drag, joc. **Plasarea WebXR** are logica verificată cu un hit-test simulat (reticul, tap, replasare), dar sesiunea WebXR reală necesită un telefon Android — **nu am putut-o testa aici**.
-- **Detecția markerului** testată cu o cameră virtuală care afișează markerul Hiro: AR.js îl recunoaște și afișează scena; fără marker apare indicația.
-- **Netestat pe un telefon fizic** — încearcă pe dispozitivul tău înainte de prezentare (lumină bună, marker mare). Plasarea pe suprafețe reale cere WebXR (doar Android/Chrome); pe iPhone, în browser, nu există alternativă fără marker cu ancorare reală (ar cere o aplicație nativă ARKit sau un SDK comercial, ex. 8th Wall).
+## Testing and limits
+- Checked automatically in headless Chromium: start-up, planet selection, planet bar and ◀ ▶ navigation, drag/zoom, a full quiz, the game (score, lives, game over), the music engine (non-silent output in every mood, silent when switched off), no console errors.
+- **3DoF mode** tested with a virtual camera. **WebXR placement** has its logic verified with a simulated hit-test (reticle, tap, re-place), but a real WebXR session needs an Android phone — **not testable in the development container**.
+- **Marker detection** tested with a virtual camera showing the Hiro marker.
+- **Not tested on a physical phone** — try it on your device before presenting (good light, large marker). Anchoring on real surfaces needs WebXR (Android/Chrome only); on iPhone there is no markerless option with real anchoring in the browser (it would need a native ARKit app or a commercial SDK such as 8th Wall).

@@ -1,12 +1,12 @@
-/* AR Cosmos — Sistemul Solar interactiv în realitate augmentată (A-Frame + AR.js)
+/* AR Cosmos — an interactive Solar System in augmented reality (A-Frame + AR.js + WebXR)
  *
- * Structură:
- *   1. Utilitare + stare globală (App)
- *   2. Generare texturi procedurale
- *   3. Componenta A-Frame "universe" (soare, planete, orbite, etichete, asteroizi, efecte)
- *   4. Moduri: Explorare, Quiz, Joc
- *   5. Gesturi (drag = rotire, pinch = scalare, tap = selectare)
- *   6. Interfață (UI) și pornirea scenei AR / demo
+ * Structure:
+ *   1. Utilities + global state (App)
+ *   2. Procedural textures
+ *   3. A-Frame component "universe" (sun, planets, orbits, labels, asteroids, effects)
+ *   4. Modes: Explore, Quiz, Game
+ *   5. Gestures (drag = rotate, pinch = scale, tap = select)
+ *   6. UI, markerless AR (WebXR / 3DoF) and scene start-up
  */
 (function () {
   'use strict';
@@ -19,11 +19,11 @@
 
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
-    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignorat */ } }
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } }
   };
 
   /* ======================================================================
-   * 1. Stare globală
+   * 1. Global state
    * ==================================================================== */
   const App = window.App = {
     mode: 'explore',
@@ -47,8 +47,8 @@
     xrPlaced: false
   };
 
-  /* înălțimea centrului sistemului și scala implicită, în funcție de tipul de AR
-   * (marker: 1 unitate = lățimea markerului; xr/gyro: 1 unitate = 1 metru) */
+  /* height of the system's center and default scale for each kind of AR
+   * (marker: 1 unit = marker width; xr/gyro: 1 unit = 1 meter) */
   const KIND = {
     marker: { y: 0.3, scale: 0.6 },
     demo:   { y: 0,   scale: 0.85 },
@@ -63,7 +63,7 @@
     App.scaleMax = App.defScale * 2.7;
   }
 
-  function vibrate(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) { /* ignorat */ } }
+  function vibrate(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) { /* ignore */ } }
 
   let toastTimer = 0;
   function toast(text, kind, ms) {
@@ -194,17 +194,17 @@
       const root = this.el.object3D;
       this.root = root;
       this.center = new THREE.Group();
-      this.center.position.y = KIND[App.kind].y;          // plutește deasupra markerului / podelei
-      if (App.kind === 'xr') root.visible = false;         // apare după ce utilizatorul îl plasează
+      this.center.position.y = KIND[App.kind].y;          // floats above the marker / floor
+      if (App.kind === 'xr') root.visible = false;         // appears once the user places it
       root.add(this.center);
-      this.spin = new THREE.Group();                      // se rotește cu degetul
+      this.spin = new THREE.Group();                      // rotated by dragging
       this.center.add(this.spin);
-      this.gameGroup = new THREE.Group();                 // asteroizi + efecte (nu se rotește)
+      this.gameGroup = new THREE.Group();                 // asteroids + effects (does not rotate)
       this.center.add(this.gameGroup);
 
-      this.pickables = [];                                // obiecte atingibile (raycast)
+      this.pickables = [];                                // tappable objects (raycast)
       this.byId = {};
-      this.fx = [];                                       // efecte temporare (explozii, inele, texte)
+      this.fx = [];                                       // temporary effects (explosions, rings, floating text)
       this.ringTex = ringTexture();
 
       this.buildSun();
@@ -219,7 +219,7 @@
       this.applyToggles();
     },
 
-    /* ---------- construcție ---------- */
+    /* ---------- construction ---------- */
     buildSun() {
       const mat = new THREE.MeshBasicMaterial({ map: sunTexture() });
       this.sun = new THREE.Mesh(new THREE.SphereGeometry(0.14, 32, 20), mat);
@@ -233,10 +233,10 @@
       this.center.add(glow);
 
       const hit = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), new THREE.MeshBasicMaterial({ visible: false }));
-      hit.userData = { kind: 'planet', id: 'soare' };
+      hit.userData = { kind: 'planet', id: 'sun' };
       this.sun.add(hit);
       this.pickables.push(hit);
-      this.byId.soare = { mesh: this.sun, size: 0.14, data: SUN };
+      this.byId.sun = { mesh: this.sun, size: 0.14, data: SUN };
     },
 
     buildPlanets() {
@@ -247,18 +247,18 @@
         pivot.rotation.y = Math.random() * Math.PI * 2;
         this.spin.add(pivot);
 
-        const holder = new THREE.Group();            // poziția pe orbită (nu se rotește în jurul axei)
+        const holder = new THREE.Group();            // position on the orbit (does not spin on its axis)
         holder.position.x = p.orbit;
         pivot.add(holder);
         const mat = new THREE.MeshStandardMaterial({ map: planetTexture(p), roughness: 0.95, metalness: 0 });
-        const mesh = new THREE.Mesh(new THREE.SphereGeometry(p.size, 28, 18), mat);   // doar globul se rotește
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(p.size, 28, 18), mat);   // only the globe spins
         holder.add(mesh);
 
         if (p.rings) {
           const thin = p.rings === 'thin';
           const inner = p.size * (thin ? 1.5 : 1.35), outer = p.size * (thin ? 1.75 : 2.3);
           const rg = new THREE.RingGeometry(inner, outer, 64, 1);
-          // UV radial, ca textura să fie benzi concentrice
+          // radial UVs so the texture becomes concentric bands
           const pos = rg.attributes.position, uv = rg.attributes.uv, v = new THREE.Vector3();
           for (let i = 0; i < pos.count; i++) {
             v.fromBufferAttribute(pos, i);
@@ -289,7 +289,7 @@
         holder.add(label);
         this.labels.push(label);
 
-        // linia orbitei
+        // orbit line
         const pts = [];
         for (let i = 0; i <= 96; i++) {
           const a = (i / 96) * Math.PI * 2;
@@ -331,14 +331,14 @@
       return g;
     },
 
-    /* ---------- vizibilitate orbite/etichete ---------- */
+    /* ---------- orbit / label visibility ---------- */
     applyToggles() {
-      const labelsOn = App.showLabels && App.mode !== 'quiz';   // în quiz ascundem numele (ar da răspunsul)
+      const labelsOn = App.showLabels && App.mode !== 'quiz';   // hide names in the quiz (they would give the answer away)
       this.orbitLines.forEach((l) => { l.visible = App.showOrbits; });
       this.labels.forEach((l) => { l.visible = labelsOn; });
     },
 
-    /* ---------- efecte ---------- */
+    /* ---------- effects ---------- */
     ring(id, color, dur) {
       const e = this.byId[id];
       if (!e) return;
@@ -405,7 +405,7 @@
       }
     },
 
-    /* ---------- bucla principală ---------- */
+    /* ---------- main loop ---------- */
     tick(time, dtMs) {
       const dt = Math.min(dtMs, 100) / 1000;
       this.root.scale.setScalar(App.scale);
@@ -427,21 +427,35 @@
   });
 
   /* ======================================================================
-   * 4a. Mod EXPLORARE (educațional)
+   * 4a. EXPLORE mode (educational)
    * ==================================================================== */
   const Explore = {
+    order: ['sun'].concat(PLANETS.map((p) => p.id)),
+
     select(id) {
       const U = App.universe;
-      U.clearRings();
+      if (U) { U.clearRings(); U.ring(id, 0xffffff, 60); }
       App.selected = id;
-      U.ring(id, 0xffffff, 60);
       this.showInfo(id);
+      Sfx.select(this.order.indexOf(id));
+      let active = null;
+      document.querySelectorAll('#strip .chipbtn').forEach((b) => {
+        const on = b.dataset.id === id;
+        b.classList.toggle('active', on);
+        if (on) active = b;
+      });
+      const strip = $('#strip');
+      if (active && strip.scrollTo) strip.scrollTo({ left: active.offsetLeft - (strip.clientWidth - active.clientWidth) / 2, behavior: 'smooth' });
+    },
+    step(dir) {                                   // Previous / Next buttons on the info card
+      const n = this.order.length, i = this.order.indexOf(App.selected);
+      this.select(this.order[i < 0 ? (dir > 0 ? 0 : n - 1) : (i + dir + n) % n]);
     },
     showInfo(id) {
-      const d = id === 'soare' ? SUN : PLANETS.find((p) => p.id === id);
-      $('#i-name').textContent = (id === 'soare' ? '☀️ ' : '🪐 ') + d.name;
-      const rows = [['Diametru', d.diameter], ['Distanță față de Soare', d.distance], ['Un an', d.year],
-        ['O zi', d.day], ['Temperatură', d.temp], ['Sateliți', d.moons]]
+      const d = id === 'sun' ? SUN : PLANETS.find((p) => p.id === id);
+      $('#i-name').textContent = (id === 'sun' ? '☀️ ' : '🪐 ') + d.name;
+      const rows = [['Diameter', d.diameter], ['Distance from Sun', d.distance], ['Year', d.year],
+        ['Day', d.day], ['Temperature', d.temp], ['Moons', d.moons]]
         .filter((r) => r[1] && r[1] !== '—');
       $('#i-grid').innerHTML = rows.map((r) => '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>').join('');
       $('#i-fact').textContent = d.fact;
@@ -450,16 +464,17 @@
     hideInfo() {
       $('#info').classList.add('hidden');
       App.selected = null;
+      document.querySelectorAll('#strip .chipbtn.active').forEach((b) => b.classList.remove('active'));
       if (App.universe) App.universe.clearRings();
     },
     onTap(hit) {
-      if (hit && hit.kind === 'planet') { Sfx.tap(); vibrate(15); this.select(hit.id); }
+      if (hit && hit.kind === 'planet') { vibrate(15); this.select(hit.id); }
       else if (App.selected) this.hideInfo();
     }
   };
 
   /* ======================================================================
-   * 4b. Mod QUIZ
+   * 4b. QUIZ mode
    * ==================================================================== */
   const Quiz = {
     total: 8, list: [], i: 0, score: 0, locked: false,
@@ -470,28 +485,28 @@
       this.render();
     },
     render() {
-      $('#quiz-progress').textContent = 'Întrebarea ' + (this.i + 1) + '/' + this.total;
-      $('#quiz-score').textContent = this.score + ' pct';
-      $('#quiz-q').textContent = this.list[this.i].q + '  👆 Atinge planeta';
+      $('#quiz-progress').textContent = 'Question ' + (this.i + 1) + '/' + this.total;
+      $('#quiz-score').textContent = this.score + ' pts';
+      $('#quiz-q').textContent = this.list[this.i].q;
     },
     onTap(hit) {
       if (this.locked) return;
       if (!hit || hit.kind !== 'planet') return;
-      if (hit.id === 'soare') { toast('Soarele e o stea, nu o planetă 😉', 'bad'); return; }
+      if (hit.id === 'sun') { toast('The Sun is a star, not a planet 😉', 'bad'); return; }
       const q = this.list[this.i], U = App.universe;
       this.locked = true;
       const ok = hit.id === q.a;
       if (ok) {
         this.score += 10;
         U.ring(hit.id, 0x3ddc84, 1.2);
-        toast('✔ Corect! +10', 'good'); Sfx.good(); vibrate(40);
+        toast('✔ Correct! +10', 'good'); Sfx.good(); vibrate(40);
       } else {
         const right = PLANETS.find((p) => p.id === q.a).name;
         U.ring(hit.id, 0xff5d6c, 1.2);
         U.ring(q.a, 0x3ddc84, 1.6);
-        toast('✘ Era ' + right, 'bad', 1800); Sfx.bad(); vibrate([60, 40, 60]);
+        toast('✘ It was ' + right, 'bad', 1800); Sfx.bad(); vibrate([60, 40, 60]);
       }
-      $('#quiz-score').textContent = this.score + ' pct';
+      $('#quiz-score').textContent = this.score + ' pts';
       setTimeout(() => {
         this.i++;
         this.locked = false;
@@ -502,18 +517,20 @@
       const best = Math.max(store.get('ar_best_quiz', 0), this.score);
       store.set('ar_best_quiz', best);
       const max = this.total * 10;
-      const msg = this.score >= max * 0.9 ? 'Excelent! Ești un adevărat astronom 🚀'
-        : this.score >= max * 0.6 ? 'Bravo! Mai explorează puțin și vei ajunge expert 🌍'
-        : 'Poți mai bine — încearcă modul Explorează și revino 🔭';
-      UI.modal('Rezultat quiz',
-        '<div class="big">' + this.score + '/' + max + '</div><p class="center">' + msg + '</p><p class="center">Cel mai bun scor: <b>' + best + '</b></p>',
-        [{ label: 'Joacă din nou', primary: true, fn: () => this.start() },
-         { label: 'Explorează', fn: () => UI.setMode('explore') }]);
+      const msg = this.score >= max * 0.9 ? 'Excellent! You are a true astronomer 🚀'
+        : this.score >= max * 0.6 ? 'Well done! Explore a bit more and you will be an expert 🌍'
+        : 'You can do better — try Explore mode and come back 🔭';
+      Sfx.setMood('calm');
+      if (this.score >= max * 0.6) Sfx.win();
+      UI.modal('Quiz results',
+        '<div class="big">' + this.score + '/' + max + '</div><p class="center">' + msg + '</p><p class="center">Best score: <b>' + best + '</b></p>',
+        [{ label: 'Play again', primary: true, fn: () => { Sfx.setMood('quiz'); this.start(); } },
+         { label: 'Explore', fn: () => UI.setMode('explore') }]);
     }
   };
 
   /* ======================================================================
-   * 4c. Mod JOC — „Apără Soarele”
+   * 4c. GAME mode — “Defend the Sun”
    * ==================================================================== */
   const Game = {
     running: false, score: 0, lives: 3, level: 1, kills: 0,
@@ -526,7 +543,7 @@
       this.score = 0; this.lives = 3; this.level = 1; this.kills = 0;
       this.spawnT = 0.8; this.slowT = 0; this.flashT = 0;
       this.refreshHud();
-      toast('Apără Soarele! Atinge asteroizii ☄️', '', 1800);
+      Sfx.setMood('game'); Sfx.setLevel(1);
     },
     stop() { this.running = false; this.clear(); },
     clear() {
@@ -600,7 +617,7 @@
         this.spawnT = Math.max(0.45, 1.5 - 0.1 * (this.level - 1)) * rand(0.7, 1.3);
       }
 
-      // mișcare + coliziune cu Soarele
+      // movement + collision with the Sun
       for (let i = this.items.length - 1; i >= 0; i--) {
         const a = this.items[i];
         const p = a.obj.position, len = p.length();
@@ -609,7 +626,7 @@
         if (len < 0.18) this.damage(a, i);
       }
 
-      // clipire roșie a Soarelui
+      // red flash of the Sun
       if (this.flashT > 0) {
         this.flashT -= dt;
         U.sun.material.color.setRGB(1, this.flashT > 0 ? 0.25 : 1, this.flashT > 0 ? 0.25 : 1);
@@ -634,7 +651,8 @@
     },
 
     onTap(hit) {
-      if (!this.running || !hit || hit.kind !== 'asteroid') return;
+      if (!this.running) return;
+      if (!hit || hit.kind !== 'asteroid') { Sfx.miss(); return; }
       const a = hit.item;
       const idx = this.items.indexOf(a);
       if (idx < 0) return;
@@ -647,11 +665,11 @@
       this.remove(a, idx);
       this.score += pts; this.kills++;
       if (a.kind === 'gold') {
-        this.slowT = 5; Sfx.power(); toast('⏱ Timp încetinit 5 s!', 'good');
-      } else Sfx.boom();
+        this.slowT = 5; Sfx.power(); toast('⏱ Slow motion for 5 s!', 'good');
+      } else { Sfx.zap(); Sfx.boom(); }
       vibrate(25);
       if (this.kills % 10 === 0) {
-        this.level++; Sfx.level(); toast('Nivel ' + this.level + ' 🔥', 'good');
+        this.level++; Sfx.level(); Sfx.setLevel(this.level); toast('Level ' + this.level + ' 🔥', 'good');
       }
       this.refreshHud();
     },
@@ -664,16 +682,17 @@
       store.set('ar_best_game', best);
       this.refreshHud();
       const fact = FACTS[Math.floor(Math.random() * FACTS.length)];
-      UI.modal('Soarele a fost lovit! 💥',
+      Sfx.setMood('calm');
+      UI.modal('The Sun was hit! 💥',
         '<div class="big">' + this.score + '</div>' +
-        '<p class="center">' + (isRecord ? '🏆 Record nou!' : 'Record: <b>' + best + '</b>') + ' · Nivel ' + this.level + '</p>' +
-        '<div class="fact">💡 Știai că… ' + fact + '</div>',
-        [{ label: 'Din nou', primary: true, fn: () => this.start() },
-         { label: 'Explorează', fn: () => UI.setMode('explore') }]);
+        '<p class="center">' + (isRecord ? '🏆 New record!' : 'Best: <b>' + best + '</b>') + ' · Level ' + this.level + '</p>' +
+        '<div class="fact">💡 Did you know… ' + fact + '</div>',
+        [{ label: 'Play again', primary: true, fn: () => this.start() },
+         { label: 'Explore', fn: () => UI.setMode('explore') }]);
     }
   };
 
-  App.Quiz = Quiz; App.Game = Game;   // expuse pentru depanare/teste
+  App.Quiz = Quiz; App.Game = Game;   // exposed for debugging/tests
 
   /* ======================================================================
    * 5. Gesturi: drag = rotire, pinch = scalare, tap = selectare
@@ -684,12 +703,12 @@
     const ndc = new THREE.Vector2();
     let pinch = null;
 
-    const ignore = (e) => !App.started || !!e.target.closest('button, .card, .overlay, .hud, #nav');
+    const ignore = (e) => !App.started || !!e.target.closest('button, .card, .overlay, .hud, #nav, #strip, #tools');
     const gesturesOn = () => App.mode !== 'game';
 
     function pick(x, y) {
       const sceneEl = $('a-scene');
-      const cam = sceneEl && sceneEl.camera;   // în WebXR three.js îi actualizează poziția la fiecare cadru
+      const cam = sceneEl && sceneEl.camera;   // in WebXR three.js updates its pose every frame
       const U = App.universe;
       if (!cam || !U || !App.markerVisible) return null;
       ndc.set((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
@@ -743,7 +762,7 @@
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', end);
 
-    // dezktop: rotița mouse-ului = zoom
+    // desktop: mouse wheel = zoom
     window.addEventListener('wheel', (e) => {
       if (!App.started || !gesturesOn() || e.target.closest('.overlay, .card')) return;
       App.scale = clamp(App.scale * (e.deltaY < 0 ? 1.08 : 0.92), App.scaleMin, App.scaleMax);
@@ -754,8 +773,30 @@
   })();
 
   /* ======================================================================
-   * 6. Interfața (UI) + pornirea scenei
+   * 6. UI + scene start-up
    * ==================================================================== */
+  let coachTimer = 0;
+  function coach(text, ms) {
+    const el = $('#coach');
+    el.textContent = text;
+    el.classList.add('show');
+    clearTimeout(coachTimer);
+    coachTimer = setTimeout(() => el.classList.remove('show'), ms || 6000);
+  }
+
+  function buildStrip() {
+    const strip = $('#strip');
+    strip.innerHTML = [SUN].concat(PLANETS).map((d) => {
+      const color = d.id === 'sun' ? '#ffb300' : d.color;
+      return '<button class="chipbtn" data-id="' + d.id + '"><i style="background:' + color + ';color:' + color + '"></i>' +
+        (d.id === 'sun' ? 'Sun' : d.name) + '</button>';
+    }).join('');
+    strip.addEventListener('click', (e) => {
+      const b = e.target.closest('.chipbtn');
+      if (b) { vibrate(10); Explore.select(b.dataset.id); }
+    });
+  }
+
   const UI = {
     setMode(m) {
       if (m === App.mode && App.universe) { if (m === 'quiz') Quiz.start(); else if (m === 'game') Game.start(); return; }
@@ -768,14 +809,21 @@
       if (App.universe) App.universe.applyToggles();
       if (m === 'quiz') Quiz.start();
       if (m === 'game') Game.start();
-      if (m === 'explore') toast('Atinge o planetă 🪐', '', 1500);
+      Sfx.setMood(m === 'quiz' ? 'quiz' : m === 'game' ? 'game' : 'calm');
+      coach(this.COACH[m]);
       this.updateHint();
     },
 
+    COACH: {
+      explore: 'Tap a planet — or pick one in the bar below. Drag to rotate, pinch to zoom.',
+      quiz:    'Tap the planet that answers the question. Planet names are hidden!',
+      game:    'Tap the asteroids before they hit the Sun. Golden ones slow down time.'
+    },
+
     HINTS: {
-      marker:    ['⌗', 'Îndreaptă camera spre <b>markerul Hiro</b>', 'Ține-l bine luminat și complet în cadru'],
-      xrSearch:  ['📱', 'Mișcă telefonul <b>încet</b> și privește podeaua sau o masă', 'Caut o suprafață plană…'],
-      xrReady:   ['📍', 'Atinge ecranul ca să <b>plasezi</b> universul aici', 'Cercul albastru arată unde va apărea']
+      marker:    ['⌗', 'Point the camera at the <b>Hiro marker</b>', 'Keep it well lit and fully in view'],
+      xrSearch:  ['📱', 'Move your phone <b>slowly</b> and look at the floor or a table', 'Looking for a flat surface…'],
+      xrReady:   ['📍', 'Tap the screen to <b>place</b> the universe here', 'The blue circle shows where it will appear']
     },
 
     updateHint() {
@@ -799,7 +847,7 @@
         const b = document.createElement('button');
         b.textContent = a.label;
         b.className = a.primary ? 'primary' : 'secondary';
-        b.addEventListener('click', () => { Sfx.tap(); this.closeModal(); if (a.fn) a.fn(); });
+        b.addEventListener('click', () => { Sfx.ui(); this.closeModal(); if (a.fn) a.fn(); });
         box.appendChild(b);
       });
       $('#modal').classList.remove('hidden');
@@ -807,32 +855,37 @@
     closeModal() { $('#modal').classList.add('hidden'); },
 
     help() {
-      this.modal('Cum se folosește',
+      const extra = {
+        marker: '<li><b>Marker:</b> if the marker leaves the camera view, everything pauses until you find it again.</li>',
+        xr:     '<li><b>📍 Move:</b> picks the universe up so you can place it somewhere else.</li>',
+        gyro:   '<li><b>📍 Move:</b> re-centers the universe in front of you.</li>',
+        demo:   '<li><b>Demo:</b> mouse wheel zooms, drag rotates.</li>'
+      }[App.kind] || '';
+      this.modal('How to use',
         '<ul>' +
-        '<li><b>🔭 Explorează:</b> atinge o planetă pentru detalii. Trage cu un deget ca să rotești sistemul, ciupește cu două degete ca să-l mărești/micșorezi.</li>' +
-        '<li><b>Butoane:</b> ⏸ pauză · viteză orbite · ◎ orbite · Aa etichete · ⟲ resetare.</li>' +
-        '<li><b>🎯 Quiz:</b> citești întrebarea și atingi planeta corectă (numele sunt ascunse!).</li>' +
-        '<li><b>☄️ Joc:</b> atinge asteroizii înainte să lovească Soarele. ' +
-        'Cometele albastre sunt rapide (+25), cele aurii încetinesc timpul. Ai 3 vieți.</li>' +
-        '<li>Dacă pierzi markerul din vedere, aplicația se oprește până îl găsești din nou.</li>' +
+        '<li><b>🔭 Explore</b> — tap a planet (or pick one in the bar at the bottom) to see its facts, and use ◀ ▶ to browse. Drag to rotate, pinch to zoom. Tools on the right: Pause, Speed, Orbits, Names, Reset.</li>' +
+        '<li><b>🎯 Quiz</b> — read the question and tap the right planet. Names are hidden!</li>' +
+        '<li><b>☄️ Game</b> — tap asteroids before they hit the Sun. Blue comets are fast (+25), golden asteroids slow time. You have 3 lives.</li>' +
+        '<li><b>🎵 🔊</b> — turn music and sound effects on or off. <b>🏠</b> goes back to the menu.</li>' +
+        extra +
         '</ul>');
     }
   };
 
-  /* ---------- AR fără marker, varianta 1: WebXR (Android/Chrome) — hit-test pe suprafețe reale ---------- */
+  /* ---------- Markerless AR, option 1: WebXR (Android/Chrome) — hit-test on real surfaces ---------- */
   const XR = {
     hitSource: null, reticle: null, state: 'search',
     setState(st) { if (st !== this.state) { this.state = st; UI.updateHint(); } },
     place() {
-      if (!this.reticle || !this.reticle.visible) { toast('Mai caută o suprafață plană…', 'bad'); return; }
+      if (!this.reticle || !this.reticle.visible) { toast('Keep looking for a flat surface…', 'bad'); return; }
       const w = $('#world').object3D;
       w.position.setFromMatrixPosition(this.reticle.matrix);
       w.visible = true;
       App.xrPlaced = true;
       this.reticle.visible = false;
       setMarker(true);
-      Sfx.good(); vibrate(30);
-      toast('Plasat! Mergi în jurul lui 🚶', 'good', 1800);
+      Sfx.place(); vibrate(30);
+      toast('Placed! Walk around it 🚶', 'good', 1800);
     },
     replace() {
       App.xrPlaced = false;
@@ -858,11 +911,11 @@
       sceneEl.addEventListener('enter-vr', () => {
         if (!sceneEl.is('ar-mode')) return;
         const session = sceneEl.renderer.xr.getSession();
-        if (!session || !session.requestHitTestSource) { toast('Dispozitivul nu suportă detectarea suprafețelor', 'bad', 3000); return; }
+        if (!session || !session.requestHitTestSource) { toast('This device cannot detect surfaces', 'bad', 3000); return; }
         session.requestReferenceSpace('viewer')
           .then((vs) => session.requestHitTestSource({ space: vs }))
           .then((src) => { XR.hitSource = src; })
-          .catch(() => toast('Nu am putut porni detectarea suprafețelor', 'bad', 3000));
+          .catch(() => toast('Could not start surface detection', 'bad', 3000));
       });
       sceneEl.addEventListener('exit-vr', () => { XR.hitSource = null; location.reload(); });
     },
@@ -883,7 +936,7 @@
     }
   });
 
-  /* ---------- AR fără marker, varianta 2: „3DoF” (merge și pe iPhone) — cameră + giroscop ---------- */
+  /* ---------- Markerless AR, option 2: “3DoF” (works on iPhone too) — camera + gyroscope ---------- */
   const Gyro = {
     async startCamera() {
       const v = document.createElement('video');
@@ -893,10 +946,10 @@
         v.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
         await v.play();
       } catch (e) {
-        toast('Camera nu e disponibilă — aplicația merge și fără ea', 'bad', 3500);
+        toast('Camera unavailable — the app still works without it', 'bad', 3500);
       }
     },
-    // așază universul ~1,2 m în fața direcției în care privești acum
+    // puts the universe ~1.2 m in front of where you are looking right now
     recenter() {
       const sceneEl = $('a-scene'), cam = sceneEl && sceneEl.camera, w = $('#world');
       if (!cam || !w) return;
@@ -910,7 +963,7 @@
     }
   };
 
-  App.XR = XR; App.Gyro = Gyro;   // expuse pentru depanare/teste
+  App.XR = XR; App.Gyro = Gyro;   // exposed for debugging/tests
 
   function sceneHtml(kind) {
     const y = KIND[kind].y;
@@ -952,10 +1005,10 @@
     if (App.markerVisible === visible) return;
     App.markerVisible = visible;
     UI.updateHint();
-    if (visible && App.kind === 'marker' && App.mode === 'game' && Game.running) toast('Marker găsit — jocul continuă', 'good');
+    if (visible && App.kind === 'marker' && App.mode === 'game' && Game.running) toast('Marker found — game resumed', 'good');
   }
 
-  /* AR.js (markere) se încarcă doar când e nevoie: nu interferă cu WebXR / modul 3DoF */
+  /* AR.js (markers) is loaded only when needed, so it never interferes with WebXR / 3DoF */
   let arjsLoading = null;
   function loadArjs() {
     if (!arjsLoading) {
@@ -963,7 +1016,7 @@
         const sc = document.createElement('script');
         sc.src = 'vendor/aframe-ar.js';
         sc.onload = resolve;
-        sc.onerror = () => reject(new Error('AR.js nu s-a încărcat'));
+        sc.onerror = () => reject(new Error('AR.js failed to load'));
         document.head.appendChild(sc);
       });
     }
@@ -976,7 +1029,7 @@
       try { await loadArjs(); } catch (e) { toast(e.message, 'bad', 3500); return; }
     }
     setScaleFor(kind);
-    if (kind !== 'demo') document.documentElement.classList.add('ar');   // lasă camera (video/passthrough) vizibilă
+    if (kind !== 'demo') document.documentElement.classList.add('ar');   // keep the camera (video/passthrough) visible
     if (kind === 'gyro') Gyro.startCamera();
 
     document.body.insertAdjacentHTML('afterbegin', sceneHtml(kind));
@@ -993,12 +1046,12 @@
       const enter = () => {
         try { Promise.resolve(sceneEl.enterAR()).catch(askEnter); } catch (e) { askEnter(e); }
       };
-      // dacă browserul cere un gest nou al utilizatorului, afișăm un buton explicit
-      const askEnter = () => UI.modal('Pornește sesiunea AR',
-        '<p class="center">Apasă butonul și permite accesul la cameră.</p>',
-        [{ label: '📱 Intră în AR', primary: true, fn: () => {
-          try { Promise.resolve(sceneEl.enterAR()).catch((err) => toast('Nu pot porni AR: ' + (err && err.message || err), 'bad', 4000)); }
-          catch (err) { toast('Nu pot porni AR: ' + err.message, 'bad', 4000); }
+      // if the browser wants a fresh user gesture, show an explicit button
+      const askEnter = () => UI.modal('Start the AR session',
+        '<p class="center">Tap the button and allow camera access.</p>',
+        [{ label: '📱 Enter AR', primary: true, fn: () => {
+          try { Promise.resolve(sceneEl.enterAR()).catch((err) => toast('Cannot start AR: ' + (err && err.message || err), 'bad', 4000)); }
+          catch (err) { toast('Cannot start AR: ' + err.message, 'bad', 4000); }
         } }]);
       if (sceneEl.hasLoaded) enter(); else sceneEl.addEventListener('loaded', enter, { once: true });
       $('#t-place').classList.remove('hidden');
@@ -1006,63 +1059,80 @@
       setMarker(true);
       if (kind === 'gyro') {
         $('#t-place').classList.remove('hidden');
-        const center = () => setTimeout(() => { Gyro.recenter(); toast('Universul e în fața ta. 📍 îl recentrează', '', 2600); }, 1500);
+        const center = () => setTimeout(() => { Gyro.recenter(); toast('The universe is in front of you. 📍 re-centers it', '', 2600); }, 1500);
         if (sceneEl.hasLoaded) center(); else sceneEl.addEventListener('loaded', center, { once: true });
       }
     }
     UI.setMode('explore');
     UI.updateHint();
+    if (!store.get('ar_seen_help', false) && kind !== 'xr') {      // short intro the first time only
+      store.set('ar_seen_help', true);
+      setTimeout(() => UI.help(), 700);
+    }
   }
 
-  /* detectăm dacă telefonul poate plasa conținut pe suprafețe reale (WebXR immersive-ar) */
+  /* detect whether the phone can place content on real surfaces (WebXR immersive-ar) */
   async function detectXR() {
     let ok = false;
     try {
-      // unele browsere nu răspund niciodată: nu așteptăm mai mult de 2 secunde
+      // some browsers never answer: wait at most 2 seconds
       const timeout = new Promise((res) => setTimeout(() => res(false), 2000));
       ok = !!(navigator.xr && await Promise.race([navigator.xr.isSessionSupported('immersive-ar'), timeout]));
     } catch (e) { ok = false; }
     App.xrSupported = ok;
     $('#free-note').textContent = ok
-      ? '✔ Telefonul tău poate plasa universul pe podea sau masă: mișcă telefonul, apoi atinge ecranul. Fără marker.'
-      : 'Fără marker. Telefonul nu oferă detectare de suprafețe (de ex. iPhone): universul plutește în fața ta și urmărește mișcarea telefonului.';
+      ? '✔ Your phone can place the universe on the floor or a table: move the phone, then tap the screen. No marker needed.'
+      : 'No marker needed. Your phone cannot detect surfaces (e.g. iPhone), so the universe floats in front of you and follows your phone’s rotation.';
   }
 
   function bindUI() {
     $('#btn-start-free').addEventListener('click', () => boot(App.xrSupported ? 'xr' : 'gyro'));
     $('#btn-start-ar').addEventListener('click', () => boot('marker'));
     $('#btn-start-demo').addEventListener('click', () => boot('demo'));
-    $('#t-place').addEventListener('click', () => { if (App.kind === 'xr') XR.replace(); else { Gyro.recenter(); Sfx.tap(); } });
-    // în WebXR, atingerile pe interfață nu trebuie să devină „select” în scenă
+    $('#t-place').addEventListener('click', () => { if (App.kind === 'xr') XR.replace(); else { Gyro.recenter(); Sfx.ui(); } });
+    // in WebXR, taps on the UI must not become “select” events in the scene
     $('#app-ui').addEventListener('beforexrselect', (e) => e.preventDefault());
     detectXR();
-    $('#btn-help').addEventListener('click', () => { Sfx.tap(); UI.help(); });
-    $('#btn-sound').addEventListener('click', (e) => { e.currentTarget.textContent = Sfx.toggle() ? '🔊' : '🔇'; Sfx.tap(); });
-    $('#info-close').addEventListener('click', () => Explore.hideInfo());
+    buildStrip();
+    $('#btn-help').addEventListener('click', () => { Sfx.ui(); UI.help(); });
+    $('#btn-home').addEventListener('click', () => location.reload());            // back to the start menu
+    const musicBtn = $('#btn-music'), sfxBtn = $('#btn-sound');
+    musicBtn.classList.toggle('off', !Sfx.isMusicOn());
+    sfxBtn.classList.toggle('off', !Sfx.isSfxOn());
+    sfxBtn.textContent = Sfx.isSfxOn() ? '🔊' : '🔇';
+    musicBtn.addEventListener('click', () => { musicBtn.classList.toggle('off', !Sfx.toggleMusic()); Sfx.ui(); });
+    sfxBtn.addEventListener('click', () => {
+      const on = Sfx.toggleSfx();
+      sfxBtn.classList.toggle('off', !on); sfxBtn.textContent = on ? '🔊' : '🔇'; Sfx.ui();
+    });
+    $('#info-prev').addEventListener('click', () => Explore.step(-1));
+    $('#info-next').addEventListener('click', () => Explore.step(1));
+    $('#info-close').addEventListener('click', () => { Sfx.ui(); Explore.hideInfo(); });
 
     document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
-      Sfx.tap();
+      Sfx.ui();
       UI.setMode(t.dataset.mode);
     }));
 
     $('#t-pause').addEventListener('click', (e) => {
-      App.paused = !App.paused; e.currentTarget.textContent = App.paused ? '▶' : '⏸'; Sfx.tap();
+      App.paused = !App.paused; e.currentTarget.querySelector('.ico').textContent = App.paused ? '▶' : '⏸';
+      e.currentTarget.querySelector('.cap').textContent = App.paused ? 'Play' : 'Pause'; Sfx.ui();
     });
     $('#t-speed').addEventListener('click', (e) => {
       App.speedIdx = (App.speedIdx + 1) % App.speeds.length;
       const s = App.speeds[App.speedIdx];
-      e.currentTarget.textContent = (s < 1 ? '¼' : s) + '×'; Sfx.tap();
+      e.currentTarget.querySelector('.ico').textContent = (s < 1 ? '¼' : s) + '×'; Sfx.ui();
     });
     $('#t-orbits').addEventListener('click', (e) => {
       App.showOrbits = !App.showOrbits; e.currentTarget.classList.toggle('active', App.showOrbits);
-      App.universe && App.universe.applyToggles(); Sfx.tap();
+      App.universe && App.universe.applyToggles(); Sfx.ui();
     });
     $('#t-labels').addEventListener('click', (e) => {
       App.showLabels = !App.showLabels; e.currentTarget.classList.toggle('active', App.showLabels);
-      App.universe && App.universe.applyToggles(); Sfx.tap();
+      App.universe && App.universe.applyToggles(); Sfx.ui();
     });
     $('#t-reset').addEventListener('click', () => {
-      App.yaw = 0; App.tilt = 0.35; App.scale = App.defScale; Sfx.tap();
+      App.yaw = 0; App.tilt = 0.35; App.scale = App.defScale; Sfx.ui();
     });
 
     $('#g-best').textContent = store.get('ar_best_game', 0);
