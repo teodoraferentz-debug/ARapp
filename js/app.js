@@ -27,6 +27,7 @@
    * ==================================================================== */
   const App = window.App = {
     mode: 'explore',
+    kind: 'marker',          // marker | xr | gyro | demo
     demo: false,
     started: false,
     markerVisible: false,
@@ -40,8 +41,27 @@
     tilt: 0.35,
     scale: 0.6,
     defScale: 0.6,
-    selected: null
+    scaleMin: 0.24,
+    scaleMax: 1.6,
+    selected: null,
+    xrPlaced: false
   };
+
+  /* înălțimea centrului sistemului și scala implicită, în funcție de tipul de AR
+   * (marker: 1 unitate = lățimea markerului; xr/gyro: 1 unitate = 1 metru) */
+  const KIND = {
+    marker: { y: 0.3, scale: 0.6 },
+    demo:   { y: 0,   scale: 0.85 },
+    xr:     { y: 0.35, scale: 0.3 },
+    gyro:   { y: 0,   scale: 0.28 }
+  };
+  function setScaleFor(kind) {
+    App.kind = kind;
+    App.demo = kind === 'demo';
+    App.defScale = App.scale = KIND[kind].scale;
+    App.scaleMin = App.defScale * 0.4;
+    App.scaleMax = App.defScale * 2.7;
+  }
 
   function vibrate(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) { /* ignorat */ } }
 
@@ -174,7 +194,8 @@
       const root = this.el.object3D;
       this.root = root;
       this.center = new THREE.Group();
-      this.center.position.y = App.demo ? 0 : 0.3;      // plutește deasupra markerului
+      this.center.position.y = KIND[App.kind].y;          // plutește deasupra markerului / podelei
+      if (App.kind === 'xr') root.visible = false;         // apare după ce utilizatorul îl plasează
       root.add(this.center);
       this.spin = new THREE.Group();                      // se rotește cu degetul
       this.center.add(this.spin);
@@ -668,7 +689,7 @@
 
     function pick(x, y) {
       const sceneEl = $('a-scene');
-      const cam = sceneEl && sceneEl.camera;
+      const cam = sceneEl && sceneEl.camera;   // în WebXR three.js îi actualizează poziția la fiecare cadru
       const U = App.universe;
       if (!cam || !U || !App.markerVisible) return null;
       ndc.set((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
@@ -679,6 +700,7 @@
     }
 
     function tap(x, y) {
+      if (App.kind === 'xr' && !App.xrPlaced) { XR.place(); return; }
       const hit = pick(x, y);
       if (App.mode === 'explore') Explore.onTap(hit);
       else if (App.mode === 'quiz') Quiz.onTap(hit);
@@ -706,7 +728,7 @@
       } else if (pointers.size === 2 && pinch) {
         const [a, b] = [...pointers.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
-        App.scale = clamp(pinch.s * (d / pinch.d), 0.25, 1.6);
+        App.scale = clamp(pinch.s * (d / pinch.d), App.scaleMin, App.scaleMax);
       }
     });
 
@@ -724,7 +746,7 @@
     // dezktop: rotița mouse-ului = zoom
     window.addEventListener('wheel', (e) => {
       if (!App.started || !gesturesOn() || e.target.closest('.overlay, .card')) return;
-      App.scale = clamp(App.scale * (e.deltaY < 0 ? 1.08 : 0.92), 0.25, 1.6);
+      App.scale = clamp(App.scale * (e.deltaY < 0 ? 1.08 : 0.92), App.scaleMin, App.scaleMax);
     }, { passive: true });
 
     window.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -750,8 +772,22 @@
       this.updateHint();
     },
 
+    HINTS: {
+      marker:    ['⌗', 'Îndreaptă camera spre <b>markerul Hiro</b>', 'Ține-l bine luminat și complet în cadru'],
+      xrSearch:  ['📱', 'Mișcă telefonul <b>încet</b> și privește podeaua sau o masă', 'Caut o suprafață plană…'],
+      xrReady:   ['📍', 'Atinge ecranul ca să <b>plasezi</b> universul aici', 'Cercul albastru arată unde va apărea']
+    },
+
     updateHint() {
-      $('#hint').classList.toggle('hidden', !(App.started && !App.markerVisible));
+      const el = $('#hint');
+      const show = App.started && !App.markerVisible;
+      el.classList.toggle('hidden', !show);
+      if (!show) return;
+      const key = App.kind === 'xr' ? (XR.state === 'ready' ? 'xrReady' : 'xrSearch') : 'marker';
+      const h = this.HINTS[key];
+      $('#hint-ico').textContent = h[0];
+      $('#hint-text').innerHTML = h[1];
+      $('#hint-small').textContent = h[2];
     },
 
     modal(title, html, actions) {
@@ -783,19 +819,126 @@
     }
   };
 
-  function sceneHtml(demo) {
+  /* ---------- AR fără marker, varianta 1: WebXR (Android/Chrome) — hit-test pe suprafețe reale ---------- */
+  const XR = {
+    hitSource: null, reticle: null, state: 'search',
+    setState(st) { if (st !== this.state) { this.state = st; UI.updateHint(); } },
+    place() {
+      if (!this.reticle || !this.reticle.visible) { toast('Mai caută o suprafață plană…', 'bad'); return; }
+      const w = $('#world').object3D;
+      w.position.setFromMatrixPosition(this.reticle.matrix);
+      w.visible = true;
+      App.xrPlaced = true;
+      this.reticle.visible = false;
+      setMarker(true);
+      Sfx.good(); vibrate(30);
+      toast('Plasat! Mergi în jurul lui 🚶', 'good', 1800);
+    },
+    replace() {
+      App.xrPlaced = false;
+      $('#world').object3D.visible = false;
+      Game.stop(); Explore.hideInfo();
+      setMarker(false);
+      Sfx.tap();
+    }
+  };
+
+  AFRAME.registerComponent('xr-placement', {
+    init() {
+      const sceneEl = this.el;
+      const mat = new THREE.MeshBasicMaterial({ color: 0x6aa8ff, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.1, 0.13, 40).rotateX(-Math.PI / 2), mat);
+      const dot = new THREE.Mesh(new THREE.CircleGeometry(0.015, 16).rotateX(-Math.PI / 2), mat);
+      ring.add(dot);
+      ring.matrixAutoUpdate = false;
+      ring.visible = false;
+      sceneEl.object3D.add(ring);
+      XR.reticle = ring;
+
+      sceneEl.addEventListener('enter-vr', () => {
+        if (!sceneEl.is('ar-mode')) return;
+        const session = sceneEl.renderer.xr.getSession();
+        if (!session || !session.requestHitTestSource) { toast('Dispozitivul nu suportă detectarea suprafețelor', 'bad', 3000); return; }
+        session.requestReferenceSpace('viewer')
+          .then((vs) => session.requestHitTestSource({ space: vs }))
+          .then((src) => { XR.hitSource = src; })
+          .catch(() => toast('Nu am putut porni detectarea suprafețelor', 'bad', 3000));
+      });
+      sceneEl.addEventListener('exit-vr', () => { XR.hitSource = null; location.reload(); });
+    },
+    tick() {
+      const frame = this.el.frame;
+      if (!frame || !XR.hitSource || App.xrPlaced) return;
+      const res = frame.getHitTestResults(XR.hitSource);
+      const pose = res.length ? res[0].getPose(this.el.renderer.xr.getReferenceSpace()) : null;
+      if (pose) {
+        XR.reticle.visible = true;
+        XR.reticle.matrix.fromArray(pose.transform.matrix);
+        XR.reticle.matrixWorldNeedsUpdate = true;
+        XR.setState('ready');
+      } else {
+        XR.reticle.visible = false;
+        XR.setState('search');
+      }
+    }
+  });
+
+  /* ---------- AR fără marker, varianta 2: „3DoF” (merge și pe iPhone) — cameră + giroscop ---------- */
+  const Gyro = {
+    async startCamera() {
+      const v = document.createElement('video');
+      v.id = 'cam'; v.autoplay = true; v.muted = true; v.setAttribute('playsinline', '');
+      document.body.insertBefore(v, document.body.firstChild);
+      try {
+        v.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+        await v.play();
+      } catch (e) {
+        toast('Camera nu e disponibilă — aplicația merge și fără ea', 'bad', 3500);
+      }
+    },
+    // așază universul ~1,2 m în fața direcției în care privești acum
+    recenter() {
+      const sceneEl = $('a-scene'), cam = sceneEl && sceneEl.camera, w = $('#world');
+      if (!cam || !w) return;
+      const dir = new THREE.Vector3(), pos = new THREE.Vector3();
+      cam.getWorldDirection(dir); dir.y = 0;
+      if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
+      dir.normalize();
+      cam.getWorldPosition(pos);
+      w.object3D.position.set(pos.x + dir.x * 1.2, pos.y - 0.15, pos.z + dir.z * 1.2);
+      w.object3D.visible = true;
+    }
+  };
+
+  App.XR = XR; App.Gyro = Gyro;   // expuse pentru depanare/teste
+
+  function sceneHtml(kind) {
+    const y = KIND[kind].y;
     const lights =
       '<a-entity light="type: ambient; color: #8896c8; intensity: 0.7"></a-entity>' +
-      '<a-entity light="type: point; color: #fff1d6; intensity: 2.6; decay: 0; distance: 0" position="0 ' + (demo ? 0 : 0.3) + ' 0"></a-entity>';
-    if (demo) {
-      return '<a-scene id="scene" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false" ' +
-        'renderer="antialias: true" background="color: #03050f">' +
+      '<a-entity light="type: point; color: #fff1d6; intensity: 2.6; decay: 0; distance: 0" position="0 ' + y + ' 0"></a-entity>';
+    const common = 'id="scene" xr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: ';
+
+    if (kind === 'demo') {
+      return '<a-scene ' + common + 'false" renderer="antialias: true" background="color: #03050f">' +
         '<a-entity camera="fov: 55" position="0 2.1 1.9" rotation="-48 0 0" look-controls="enabled: false"></a-entity>' +
         '<a-entity id="world" universe>' + lights + '</a-entity>' +
         '</a-scene>';
     }
-    return '<a-scene id="scene" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false" ' +
-      'renderer="alpha: true; antialias: true" ' +
+    if (kind === 'xr') {
+      return '<a-scene ' + common + 'false" renderer="alpha: true; antialias: true" xr-placement ' +
+        'webxr="referenceSpaceType: local; requiredFeatures: hit-test; optionalFeatures: dom-overlay; overlayElement: #app-ui">' +
+        '<a-entity camera look-controls="enabled: false"></a-entity>' +
+        '<a-entity id="world" universe>' + lights + '</a-entity>' +
+        '</a-scene>';
+    }
+    if (kind === 'gyro') {
+      return '<a-scene ' + common + 'true" renderer="alpha: true; antialias: true">' +
+        '<a-entity camera position="0 0 0" look-controls="touchEnabled: false; mouseEnabled: false"></a-entity>' +
+        '<a-entity id="world" universe position="0 -0.15 -1.2">' + lights + '</a-entity>' +
+        '</a-scene>';
+    }
+    return '<a-scene ' + common + 'false" renderer="alpha: true; antialias: true" ' +
       'arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: false; detectionMode: mono; ' +
       'cameraParametersUrl: data/camera_para.dat; maxDetectionRate: 30;">' +
       '<a-marker id="marker" type="pattern" url="data/patt.hiro" smooth="true" smoothCount="8" smoothTolerance="0.01" smoothThreshold="4">' +
@@ -809,33 +952,86 @@
     if (App.markerVisible === visible) return;
     App.markerVisible = visible;
     UI.updateHint();
-    if (visible && App.mode === 'game' && Game.running) toast('Marker găsit — jocul continuă', 'good');
+    if (visible && App.kind === 'marker' && App.mode === 'game' && Game.running) toast('Marker găsit — jocul continuă', 'good');
   }
 
-  function boot(demo) {
+  /* AR.js (markere) se încarcă doar când e nevoie: nu interferă cu WebXR / modul 3DoF */
+  let arjsLoading = null;
+  function loadArjs() {
+    if (!arjsLoading) {
+      arjsLoading = new Promise((resolve, reject) => {
+        const sc = document.createElement('script');
+        sc.src = 'vendor/aframe-ar.js';
+        sc.onload = resolve;
+        sc.onerror = () => reject(new Error('AR.js nu s-a încărcat'));
+        document.head.appendChild(sc);
+      });
+    }
+    return arjsLoading;
+  }
+
+  async function boot(kind) {
     Sfx.unlock();
-    App.demo = demo;
-    if (demo) App.scale = App.defScale = 0.85;
-    if (!demo) document.documentElement.classList.add('ar');   // lasă videoul camerei vizibil
-    document.body.insertAdjacentHTML('afterbegin', sceneHtml(demo));
+    if (kind === 'marker') {
+      try { await loadArjs(); } catch (e) { toast(e.message, 'bad', 3500); return; }
+    }
+    setScaleFor(kind);
+    if (kind !== 'demo') document.documentElement.classList.add('ar');   // lasă camera (video/passthrough) vizibilă
+    if (kind === 'gyro') Gyro.startCamera();
+
+    document.body.insertAdjacentHTML('afterbegin', sceneHtml(kind));
     $('#start').classList.add('hidden');
     App.started = true;
     document.body.dataset.started = 'true';
+    const sceneEl = $('a-scene');
 
-    if (demo) {
-      setMarker(true);
-    } else {
+    if (kind === 'marker') {
       const marker = $('#marker');
       marker.addEventListener('markerFound', () => setMarker(true));
       marker.addEventListener('markerLost', () => setMarker(false));
+    } else if (kind === 'xr') {
+      const enter = () => {
+        try { Promise.resolve(sceneEl.enterAR()).catch(askEnter); } catch (e) { askEnter(e); }
+      };
+      // dacă browserul cere un gest nou al utilizatorului, afișăm un buton explicit
+      const askEnter = () => UI.modal('Pornește sesiunea AR',
+        '<p class="center">Apasă butonul și permite accesul la cameră.</p>',
+        [{ label: '📱 Intră în AR', primary: true, fn: () => {
+          try { Promise.resolve(sceneEl.enterAR()).catch((err) => toast('Nu pot porni AR: ' + (err && err.message || err), 'bad', 4000)); }
+          catch (err) { toast('Nu pot porni AR: ' + err.message, 'bad', 4000); }
+        } }]);
+      if (sceneEl.hasLoaded) enter(); else sceneEl.addEventListener('loaded', enter, { once: true });
+      $('#t-place').classList.remove('hidden');
+    } else {
+      setMarker(true);
+      if (kind === 'gyro') {
+        $('#t-place').classList.remove('hidden');
+        const center = () => setTimeout(() => { Gyro.recenter(); toast('Universul e în fața ta. 📍 îl recentrează', '', 2600); }, 1500);
+        if (sceneEl.hasLoaded) center(); else sceneEl.addEventListener('loaded', center, { once: true });
+      }
     }
     UI.setMode('explore');
     UI.updateHint();
   }
 
+  /* detectăm dacă telefonul poate plasa conținut pe suprafețe reale (WebXR immersive-ar) */
+  async function detectXR() {
+    let ok = false;
+    try { ok = !!(navigator.xr && await navigator.xr.isSessionSupported('immersive-ar')); } catch (e) { ok = false; }
+    App.xrSupported = ok;
+    $('#free-note').textContent = ok
+      ? '✔ Telefonul tău poate plasa universul pe podea sau masă: mișcă telefonul, apoi atinge ecranul. Fără marker.'
+      : 'Fără marker. Telefonul nu oferă detectare de suprafețe (de ex. iPhone): universul plutește în fața ta și urmărește mișcarea telefonului.';
+  }
+
   function bindUI() {
-    $('#btn-start-ar').addEventListener('click', () => boot(false));
-    $('#btn-start-demo').addEventListener('click', () => boot(true));
+    $('#btn-start-free').addEventListener('click', () => boot(App.xrSupported ? 'xr' : 'gyro'));
+    $('#btn-start-ar').addEventListener('click', () => boot('marker'));
+    $('#btn-start-demo').addEventListener('click', () => boot('demo'));
+    $('#t-place').addEventListener('click', () => { if (App.kind === 'xr') XR.replace(); else { Gyro.recenter(); Sfx.tap(); } });
+    // în WebXR, atingerile pe interfață nu trebuie să devină „select” în scenă
+    $('#app-ui').addEventListener('beforexrselect', (e) => e.preventDefault());
+    detectXR();
     $('#btn-help').addEventListener('click', () => { Sfx.tap(); UI.help(); });
     $('#btn-sound').addEventListener('click', (e) => { e.currentTarget.textContent = Sfx.toggle() ? '🔊' : '🔇'; Sfx.tap(); });
     $('#info-close').addEventListener('click', () => Explore.hideInfo());

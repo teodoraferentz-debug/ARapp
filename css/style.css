@@ -24,12 +24,18 @@ html, body {
 
 /* Videoul AR.js trebuie să stea sub interfață */
 html.ar, html.ar body { background: transparent; }
+#cam { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; }
 video { object-fit: cover; }
 a-scene { z-index: 0; }
 canvas.a-canvas { touch-action: none; }
 
 .hidden { display: none !important; }
 .spacer { flex: 1; }
+
+/* container pentru toată interfața (și rădăcină DOM-overlay în WebXR) */
+#app-ui { position: fixed; inset: 0; z-index: 20; touch-action: none; background: transparent; overflow: hidden; }
+.note2 { display: block; margin: 6px 4px 12px; color: var(--muted); font-size: 13px; line-height: 1.35; }
+#btn-start-free + .note2 + .secondary { margin-top: 0; }
 
 /* ---------- elemente UI comune ---------- */
 .ui { position: fixed; z-index: 20; }
@@ -169,6 +175,10 @@ h2 { margin: 0 0 8px; }
 #m-body ul { padding-left: 20px; margin: 8px 0; }
 #m-body li { margin: 4px 0; }
 #m-body .fact { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.07); font-size: 14px; }
+
+@media (max-width: 699px) {
+  #info.card { right: 68px; }   /* lasă coloana de butoane liberă */
+}
 
 @media (min-width: 700px) {
   .hud, .card { left: 50%; right: auto; width: 560px; transform: translateX(-50%); }
