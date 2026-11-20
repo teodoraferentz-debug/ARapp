@@ -55,13 +55,6 @@
     xr:     { y: 0.35, scale: 0.3 },
     gyro:   { y: 0,   scale: 0.28 }
   };
-  // minimum real-world radius (in metres, for xr/gyro) of a tappable object, so small planets are easy to hit
-  const HIT_MIN = { marker: 0, demo: 0, xr: 0.05, gyro: 0.05 };
-  function fitHit(hit) {
-    const base = hit.userData.baseR;
-    hit.scale.setScalar(HIT_MIN[App.kind] ? Math.max(1, HIT_MIN[App.kind] / (base * App.scale)) : 1);
-  }
-
   function setScaleFor(kind) {
     App.kind = kind;
     App.demo = kind === 'demo';
@@ -427,7 +420,6 @@
       const dt = Math.min(dtMs, 100) / 1000;
       this.root.scale.setScalar(App.scale);
       this.spin.rotation.set(App.tilt, App.yaw, 0);
-      this.pickables.forEach(fitHit);
 
       if (!App.markerVisible) return;
 
@@ -642,7 +634,6 @@
         const p = a.obj.position, len = p.length();
         p.multiplyScalar(Math.max(len - a.speed * d, 0) / len);
         a.body.rotateOnAxis(a.spinAxis, a.spinSpd * d);
-        fitHit(a.hit);
         if (len < 0.18) this.damage(a, i);
       }
 
@@ -726,17 +717,26 @@
     const ignore = (e) => !App.started || !!e.target.closest('button, .card, .overlay, .hud, #nav, #strip, #tools');
     const gesturesOn = () => App.mode !== 'game';
 
-    // among all intersected hit-areas choose the one whose centre is closest to the ray
-    // (the hit-areas of neighbouring planets overlap once they are made finger-sized)
-    function best(hits) {
-      let bestHit = null, bestD = Infinity;
-      const v = new THREE.Vector3();
-      hits.forEach((h) => {
-        h.object.getWorldPosition(v);
-        const d = raycaster.ray.distanceToPoint(v);
-        if (d < bestD) { bestD = d; bestHit = h; }
+    // Finger-friendly picking: choose the object whose direction is closest to the touch ray,
+    // within an ANGULAR tolerance. This works the same whether the object is 30 cm or 4 m away
+    // (a fixed size in metres becomes far too small to hit once the object is a few metres from you).
+    const TOL = { xr: 0.11, gyro: 0.11, marker: 0.09, demo: 0.07 };     // radians (0.11 ≈ 6°)
+    const tmpV = new THREE.Vector3();
+    function best(list) {
+      const o = raycaster.ray.origin, dir = raycaster.ray.direction;
+      const tol = TOL[App.kind] || 0.09;
+      let bestObj = null, bestScore = Infinity;
+      list.forEach((h) => {
+        h.getWorldPosition(tmpV).sub(o);
+        const d = tmpV.length();
+        if (d < 0.05) return;
+        const cos = tmpV.dot(dir) / d;
+        if (cos <= 0) return;                                           // behind the camera
+        const ang = Math.acos(Math.min(1, cos));
+        const rAng = Math.asin(Math.min(1, (h.userData.baseR * App.scale * 0.5) / d));   // the object's own size
+        if (ang <= tol + rAng && ang < bestScore) { bestScore = ang; bestObj = h; }   // nearest centre wins
       });
-      return bestHit ? bestHit.object.userData : null;
+      return bestObj ? bestObj.userData : null;
     }
 
     function candidates() {
@@ -746,18 +746,19 @@
 
     function pick(x, y) {                       // from a screen point (marker / 3DoF / demo)
       const sceneEl = $('a-scene');
-      const cam = sceneEl && sceneEl.camera;
+      const xr = sceneEl && sceneEl.renderer && sceneEl.renderer.xr;
+      const cam = xr && xr.isPresenting ? xr.getCamera() : (sceneEl && sceneEl.camera);
       if (!cam || !App.universe || !App.markerVisible) return null;
       ndc.set((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
       raycaster.setFromCamera(ndc, cam);
-      return best(raycaster.intersectObjects(candidates(), false));
+      return best(candidates());
     }
 
     function pickRay(origin, dir) {             // from a WebXR input ray
       if (!App.universe || !App.markerVisible) return null;
       raycaster.ray.origin.copy(origin);
       raycaster.ray.direction.copy(dir).normalize();
-      return best(raycaster.intersectObjects(candidates(), false));
+      return best(candidates());
     }
 
     function dispatch(hit) {
@@ -768,7 +769,14 @@
       else Game.onTap(hit);
     }
 
-    function tap(x, y) { dispatch(pick(x, y)); }
+    function ripple(x, y) {                        // visible confirmation that the tap registered
+      const r = document.createElement('div');
+      r.className = 'ripple'; r.style.left = x + 'px'; r.style.top = y + 'px';
+      $('#app-ui').appendChild(r);
+      setTimeout(() => r.remove(), 450);
+    }
+
+    function tap(x, y) { ripple(x, y); dispatch(pick(x, y)); }
 
     window.addEventListener('pointerdown', (e) => {
       if (ignore(e)) return;
@@ -807,7 +815,8 @@
         else {
           // safety net: if the AR session does not deliver a `select` for this touch, fall back to the screen point
           const t0 = performance.now(), x = e.clientX, y = e.clientY;
-          setTimeout(() => { if (XR_LOG.lastSelect < t0 - 80) { Log.add('tap fallback (no select event)'); tap(x, y); } }, 300);
+          ripple(x, y);
+          setTimeout(() => { if (XR_LOG.lastSelect < t0 - 80) { Log.add('tap fallback (no select event)'); dispatch(pick(x, y)); } }, 300);
         }
       }
     }
@@ -1008,15 +1017,18 @@
 
       // a tap in the AR session = XR `select` event with an exact ray from the screen point
       const onSelect = (ev) => {
-        Log.add('select event'); XR_LOG.lastSelect = performance.now();
-        if (!App.xrPlaced) { XR.place(); return; }
+        Log.add('select event');
+        if (!App.xrPlaced) { XR_LOG.lastSelect = performance.now(); XR.place(); return; }
         const ref = sceneEl.renderer.xr.getReferenceSpace();
         const pose = ev.frame && ev.inputSource && ev.frame.getPose(ev.inputSource.targetRaySpace, ref);
         if (!pose) { Log.add('select: no pose'); return; }
         const t = pose.transform;
         tmpO.set(t.position.x, t.position.y, t.position.z);
         tmpD.set(0, 0, -1).applyQuaternion(tmpQ.set(t.orientation.x, t.orientation.y, t.orientation.z, t.orientation.w));
-        Input.dispatch(Input.pickRay(tmpO, tmpD));
+        XR_LOG.lastSelect = performance.now();
+        const hit = Input.pickRay(tmpO, tmpD);
+        Log.add('ray tap -> ' + (hit ? (hit.id || hit.kind) : 'nothing'));
+        Input.dispatch(hit);
       };
 
       sceneEl.addEventListener('enter-vr', () => {

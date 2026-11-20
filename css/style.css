@@ -243,3 +243,7 @@ body[data-started="true"][data-mode="explore"][data-kind="xr"] #viewctl,
 body[data-started="true"][data-mode="explore"][data-kind="gyro"] #viewctl { display: flex; }
 body[data-mode="explore"][data-kind="xr"] .coach,
 body[data-mode="explore"][data-kind="gyro"] .coach { top: calc(var(--safe-t) + 118px); }
+
+.ripple { position: fixed; z-index: 60; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%;
+  border: 2px solid #fff; pointer-events: none; animation: ripple .45s ease-out forwards; }
+@keyframes ripple { to { transform: scale(3.2); opacity: 0; } }

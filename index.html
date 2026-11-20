@@ -5,7 +5,7 @@
   <title>AR Cosmos</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#050816">
-  <link rel="stylesheet" href="css/style.css?v=6">
+  <link rel="stylesheet" href="css/style.css?v=7">
   <script>
     /* show JS errors on the start screen (handy for debugging on a phone) */
     window.addEventListener('error', function (e) {
@@ -13,10 +13,10 @@
       if (el) { el.hidden = false; el.textContent = 'Error: ' + (e.message || 'unknown') + ' (' + String(e.filename || '').split('/').pop() + ':' + (e.lineno || 0) + ')'; }
     });
   </script>
-  <script src="vendor/aframe.min.js?v=6"></script>
-  <script src="js/data.js?v=6"></script>
-  <script src="js/audio.js?v=6"></script>
-  <script src="js/app.js?v=6" defer></script>
+  <script src="vendor/aframe.min.js?v=7"></script>
+  <script src="js/data.js?v=7"></script>
+  <script src="js/audio.js?v=7"></script>
+  <script src="js/app.js?v=7" defer></script>
 </head>
 <body data-mode="explore" data-started="false">
 
@@ -113,7 +113,7 @@
       <button id="btn-start-ar" class="secondary">⌗ Start with the Hiro marker</button>
       <button id="btn-start-demo" class="secondary">🖥️ Demo mode (no camera)</button>
       <small id="err" class="note err" hidden></small>
-      <small class="note">v6 · The camera needs HTTPS or localhost. Marker: <a href="assets/hiro.png" target="_blank" rel="noopener">assets/hiro.png</a></small>
+      <small class="note">v7 · The camera needs HTTPS or localhost. Marker: <a href="assets/hiro.png" target="_blank" rel="noopener">assets/hiro.png</a></small>
     </div>
   </div>
 

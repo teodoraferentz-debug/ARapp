@@ -63,7 +63,7 @@ server.js         static server (HTTP/HTTPS)
 
 How it works, briefly:
 - `<a-marker>` (AR.js) tracks the marker; in markerless modes the `#world` entity is placed by WebXR hit-test or in front of the camera. It has the **`universe`** component, which builds the sun, planets (procedural canvas textures), orbits and labels with Three.js and animates them in `tick()`.
-- Taps use *Pointer Events*; a **Raycaster** shoots a ray from the camera through the touch point and finds the planet/asteroid (larger invisible spheres make small targets easy to hit).
+- Taps become a ray from the camera through the touch point (WebXR `select` ray in AR sessions, pointer position elsewhere). The tapped object is the one whose direction is **closest to the ray within a ~6° angular tolerance**, so small or distant targets (a planet 3 m away, a fast asteroid) are still easy to hit.
 - The modes are three objects (`Explore`, `Quiz`, `Game`) that receive the same *tap* event.
 - `Sfx` schedules music notes a fraction of a second ahead with the WebAudio clock; the mood follows the active mode.
 
