@@ -1017,7 +1017,11 @@
   /* detectăm dacă telefonul poate plasa conținut pe suprafețe reale (WebXR immersive-ar) */
   async function detectXR() {
     let ok = false;
-    try { ok = !!(navigator.xr && await navigator.xr.isSessionSupported('immersive-ar')); } catch (e) { ok = false; }
+    try {
+      // unele browsere nu răspund niciodată: nu așteptăm mai mult de 2 secunde
+      const timeout = new Promise((res) => setTimeout(() => res(false), 2000));
+      ok = !!(navigator.xr && await Promise.race([navigator.xr.isSessionSupported('immersive-ar'), timeout]));
+    } catch (e) { ok = false; }
     App.xrSupported = ok;
     $('#free-note').textContent = ok
       ? '✔ Telefonul tău poate plasa universul pe podea sau masă: mișcă telefonul, apoi atinge ecranul. Fără marker.'

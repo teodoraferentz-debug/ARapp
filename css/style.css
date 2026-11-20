@@ -184,3 +184,6 @@ h2 { margin: 0 0 8px; }
   .hud, .card { left: 50%; right: auto; width: 560px; transform: translateX(-50%); }
   #nav { left: 50%; right: auto; width: 460px; transform: translateX(-50%); }
 }
+
+.err { color: var(--bad) !important; word-break: break-word; }
+.err[hidden] { display: none; }

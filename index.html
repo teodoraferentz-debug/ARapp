@@ -5,11 +5,18 @@
   <title>AR Cosmos</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#050816">
-  <link rel="stylesheet" href="css/style.css">
-  <script src="vendor/aframe.min.js"></script>
-  <script src="js/data.js"></script>
-  <script src="js/audio.js"></script>
-  <script src="js/app.js" defer></script>
+  <link rel="stylesheet" href="css/style.css?v=4">
+  <script>
+    /* afișează erorile JS pe ecranul de start (util pentru depanare pe telefon) */
+    window.addEventListener('error', function (e) {
+      var el = document.getElementById('err');
+      if (el) { el.hidden = false; el.textContent = 'Eroare: ' + (e.message || 'necunoscută') + ' (' + String(e.filename || '').split('/').pop() + ':' + (e.lineno || 0) + ')'; }
+    });
+  </script>
+  <script src="vendor/aframe.min.js?v=4"></script>
+  <script src="js/data.js?v=4"></script>
+  <script src="js/audio.js?v=4"></script>
+  <script src="js/app.js?v=4" defer></script>
 </head>
 <body data-mode="explore" data-started="false">
 
@@ -81,10 +88,11 @@
       <h1>AR Cosmos</h1>
       <p class="sub">Sistemul Solar în palma ta — explorează, învață și apără-l de asteroizi.</p>
       <button id="btn-start-free" class="primary">🌍 Pornește AR fără marker</button>
-      <small id="free-note" class="note2">Se verifică dispozitivul…</small>
+      <small id="free-note" class="note2">Alege automat varianta potrivită telefonului tău.</small>
       <button id="btn-start-ar" class="secondary">⌗ AR cu marker Hiro</button>
       <button id="btn-start-demo" class="secondary">🖥️ Mod demo (fără cameră)</button>
-      <small class="note">Camera funcționează doar prin HTTPS sau pe localhost. Markerul Hiro: <a href="assets/hiro.png" target="_blank" rel="noopener">assets/hiro.png</a></small>
+      <small id="err" class="note err" hidden></small>
+      <small class="note">v4 · Camera funcționează doar prin HTTPS sau pe localhost. Markerul Hiro: <a href="assets/hiro.png" target="_blank" rel="noopener">assets/hiro.png</a></small>
     </div>
   </div>
 
